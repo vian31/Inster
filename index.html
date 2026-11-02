@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Inster Compteur</title>
+<meta name="description" content="Suivi du kilométrage et de la consommation de la Hyundai Inster.">
+<meta name="theme-color" content="#1c2a38">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="wrap">
+  <header><h1>Inster Compteur</h1></header>
+  <main id="view" class="grid"></main>
+</div>
+<nav class="nav" id="nav" aria-label="Sections">
+  <button data-t="bilan">Bilan</button><button data-t="saisir">Saisir</button><button data-t="histo">Historique</button><button data-t="regl">Réglages</button>
+</nav>
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
