@@ -170,14 +170,25 @@ function ringParts(cx,cy,r,w,parts,track){
     s+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.c}" stroke-width="${w}" stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;off+=L});
   return s;
 }
-function ringHero(m){
-  const cx=64,cy=64,r=50,w=14,cap=m.cap,drv=Math.min(Math.max(0,m.driven),cap);
-  const ok=Math.min(drv,m.theoL),over=drv-ok;
-  let s=ringParts(cx,cy,r,w,[{f:ok/cap,c:"var(--butter)"},{f:over/cap,c:"var(--over)"}],"rgba(255,255,255,.2)");
-  const a=Math.min(1,m.theoL/cap)*2*Math.PI-Math.PI/2,r1=r-w/2-3,r2=r+w/2+3;
+const SCALES=["w","m","y","t"];
+function ringData(m,sc){
+  const st=m.st,Ld=m.L,td=dt(m.today);
+  if(sc==="w"){const ws=Math.max(m.mon,m.start),we=m.mon+6,target=m.wk*(we-ws+1)/7,prog=Ld<ws?0:Math.min(1,(Ld-ws+1)/(we-ws+1));
+    return{name:"Semaine",title:`Semaine du ${dm(m.mon)}`,used:m.wUsed,target,theo:target*prog}}
+  if(sc==="m")return{name:"Mois",title:`${MO[td.getUTCMonth()]} ${td.getUTCFullYear()}`,used:m.used,target:m.quota,theo:m.theoUsed};
+  if(sc==="y"){const ya=m.start+Math.round(m.yi*365.25),ye=m.start+Math.round((m.yi+1)*365.25),prog=Math.min(1,Math.max(0,(m.last.d-ya)/(ye-ya)));
+    return{name:"Année "+(m.yi+1),title:`Année ${m.yi+1} du contrat`,used:m.yearKm,target:st.limit,theo:st.limit*prog}}
+  return{name:"Contrat",title:`Contrat ${f(st.months/12,0)} ans`,used:m.driven,target:m.cap,theo:m.theoL};
+}
+function ringHero(m,r0){
+  const cx=80,cy=80,r=64,w=16,T=Math.max(1,r0.target),drv=Math.min(Math.max(0,r0.used),T);
+  const ok=Math.min(drv,r0.theo),over=drv-ok,pct=r0.used/T*100;
+  let s=ringParts(cx,cy,r,w,[{f:ok/T,c:"var(--butter)"},{f:over/T,c:"var(--over)"}],"rgba(255,255,255,.2)");
+  const a=Math.min(1,r0.theo/T)*2*Math.PI-Math.PI/2,r1=r-w/2-3,r2=r+w/2+3;
   s+=`<line x1="${(cx+r1*Math.cos(a)).toFixed(1)}" y1="${(cy+r1*Math.sin(a)).toFixed(1)}" x2="${(cx+r2*Math.cos(a)).toFixed(1)}" y2="${(cy+r2*Math.sin(a)).toFixed(1)}" stroke="currentColor" stroke-width="2.5"/>`;
-  s+=`<text class="rv" x="${cx}" y="${cy+4}" text-anchor="middle">${f(m.driven/cap*100,0)} %</text><text class="ru" x="${cx}" y="${cy+22}" text-anchor="middle">du contrat</text>`;
-  return`<svg class="ring viz" viewBox="0 0 128 128" role="img" aria-label="${f(m.driven/cap*100,0)} % du contrat utilisé, ${f(m.driven)} km sur ${f(cap)}">${s}</svg>`;
+  s+=`<text class="ru" x="${cx}" y="${cy-20}" text-anchor="middle">${r0.name}</text><text class="rv" x="${cx}" y="${cy+8}" text-anchor="middle">${f(pct,0)} %</text>`;
+  s+=SCALES.map((k,i)=>`<circle cx="${cx-15+i*10}" cy="${cy+26}" r="3" fill="${k===scale?"var(--butter)":"rgba(255,255,255,.35)"}"/>`).join("");
+  return`<button class="ringBtn" data-ring="1" aria-label="${r0.title} : ${f(r0.used)} km sur ${f(r0.target)}. Toucher pour changer d'échelle"><svg class="ring viz" viewBox="0 0 160 160" aria-hidden="true">${s}</svg></button>`;
 }
 const G0=10,G1=24,gDeg=v=>180-(Math.min(G1,Math.max(G0,v))-G0)/(G1-G0)*180;
 const gArc=(d0,d1)=>{const a=polar(120,108,84,d0),b=polar(120,108,84,d1);return`M${a[0].toFixed(1)} ${a[1].toFixed(1)}A84 84 0 0 1 ${b[0].toFixed(1)} ${b[1].toFixed(1)}`};
@@ -201,7 +212,7 @@ function reminder(m){
 }
 const backupAge=m=>m.today-(S.lastExport?n(S.lastExport):m.start);
 function vBilan(m){
-  const digits=String(Math.round(m.last.o)).padStart(6,"0").split("");
+  const rg=ringData(m,scale),rm=rg.theo-rg.used;
   const pctR=Math.min(100,m.driven/m.cap*100),pctT=Math.min(100,m.theoL/m.cap*100),marge=m.theoL-m.driven;
   const remR=m.quota-m.used,remT=m.quota-m.theoUsed,gap=remR-remT;
   const pm=Math.min(100,m.used/m.quota*100),pmT=Math.min(100,m.theoUsed/m.quota*100);
@@ -215,18 +226,18 @@ function vBilan(m){
   ${backupAge(m)>30&&(m.odoList.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
   <div class="grid two">
    <section class="card hero">
-    <div class="lv"><span class="tag" style="color:inherit">Compteur</span><span class="small muted">relevé du ${dm(m.last.d)}</span></div>
-    <div class="drums" aria-label="${f(m.last.o)} kilomètres">${digits.map((d,i)=>`<div class="drum ${i===digits.length-1?"last":""}">${d}</div>`).join("")}<span class="unit">km</span></div>
+    <div class="lv small"><span class="tag" style="color:inherit">Compteur ${f(m.last.o)} km</span><span class="muted">relevé du ${dm(m.last.d)}</span></div>
     <div class="heroRow">
-     ${ringHero(m)}
+     ${ringHero(m,rg)}
      <div class="heroTxt">
-      <span class="pill ${marge>=0?"good":"warn"}">${marge>=0?"✓ Marge":"! En avance de"} ${f(Math.abs(marge))} km</span>
-      <p class="small">${f(m.driven)} / ${f(m.cap)} km contrat</p>
-      <p class="small muted">Trait : ${f(m.theoL)} km théoriques au ${dm(m.last.d)}</p>
-      <p class="small muted">${projTxt}. Fin : ${dm(m.end)} ${dt(m.end).getUTCFullYear()}.</p>
-      <p class="small muted">Année ${m.yi+1} : ${f(m.yearKm)} / ${f(m.st.limit)} km.</p>
+      <strong class="rtitle">${rg.title}</strong>
+      <span class="pill ${rm>=0?"good":"warn"}">${rm>=0?"✓ Marge":"! En avance de"} ${f(Math.abs(rm))} km</span>
+      <p class="small">${f(rg.used)} / ${f(rg.target)} km</p>
+      <p class="small muted">Trait : ${f(rg.theo)} km théoriques au ${dm(m.L)}</p>
+      ${scale==="t"?`<p class="small muted">${projTxt}. Fin : ${dm(m.end)} ${dt(m.end).getUTCFullYear()}.</p>`:`<p class="small muted">Reste ${f(Math.max(0,rg.target-rg.used))} km sur la période.</p>`}
      </div>
     </div>
+    <p class="small muted">Touche l'anneau : semaine, mois, année, contrat.</p>
    </section>
    <section class="card">
     <div class="lv"><h2>${MO[td.getUTCMonth()]} ${td.getUTCFullYear()}</h2><span class="pill ${gap>=0?"good":"warn"}">${gap>=0?"✓ +":"! −"}${f(Math.abs(gap))} km</span></div>
@@ -443,6 +454,7 @@ $("#view").addEventListener("click",e=>{
   if(b.dataset.range){range=+b.dataset.range;render()}
   if(b.dataset.pie){pieMode=b.dataset.pie;render()}
   if(b.dataset.scale){scale=b.dataset.scale;render()}
+  if(b.dataset.ring){scale=SCALES[(SCALES.indexOf(scale)+1)%4];render()}
   if(b.id==="dropDraft"){if(armed!=="dropDraft"){armed="dropDraft";b.textContent="Confirmer";return}
     armed=null;clearDraft();["cOdo","cSocA","cSocB","cKwh"].forEach(x=>$("#"+x).value="");render();toast("Recharge en cours effacée")}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
