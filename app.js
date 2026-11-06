@@ -17,7 +17,7 @@ if(!S||!S.set)S=fresh();
 if(!(S.set.cap>0))S.set.cap=42;if(S.set.soc0===undefined)S.set.soc0=null;
 const dieselAt=d=>{const P=S.set.diesel.prices;let p=P[0].price;for(const x of P)if(n(x.from)<=d)p=x.price;return p*S.set.diesel.conso};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
-let tab="bilan",range=13,formKind="charge";
+let tab="bilan",range=13,formKind="charge",pieMode="kwh";
 /* brouillon de recharge : survit à la fermeture de l'app */
 const DKEY="inster-brouillon-recharge",DF=["cDate","cOdo","cSocA","cSocB","cKwh","cPlace","cAmps","cPrice"];
 const getDraft=()=>{try{return JSON.parse(localStorage.getItem(DKEY))}catch(e){return null}};
@@ -94,7 +94,9 @@ function model(){
   const notif=dow===0&&!has;
   const late=!notif&&today>firstSun&&!odoList.some(r=>n(r.date)>=mon-7);
   const dieselTotal=months.reduce((x,o)=>x+o.dcost,0);
-  return{odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
+  const sp=pl=>{const a=chs.filter(c=>c.place===pl);return{nb:a.length,kwh:a.reduce((s,c)=>s+c.kwh,0),eur:a.reduce((s,c)=>s+c.kwh*c.price,0)}};
+  const split={dom:sp("dom"),ext:sp("ext")};
+  return{split,odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
 }
 
 /* ---- Graphiques ---- */
@@ -158,6 +160,36 @@ function lines(host,o){
   tooltips(host,svg,W,it,xOf,svg.querySelector("#cr"));
 }
 
+/* ---- Anneaux et jauge ---- */
+const polar=(cx,cy,r,deg)=>{const a=deg*Math.PI/180;return[cx+r*Math.cos(a),cy-r*Math.sin(a)]};
+function ringParts(cx,cy,r,w,parts,track){
+  const C=2*Math.PI*r;let off=0;
+  let s=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke-width="${w}" stroke="${track}"/>`;
+  parts.forEach(p=>{const L=Math.max(0,p.f)*C;if(L<.5)return;const seg=Math.max(.5,L-2);
+    s+=`<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${p.c}" stroke-width="${w}" stroke-dasharray="${seg.toFixed(2)} ${(C-seg).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;off+=L});
+  return s;
+}
+function ringHero(m){
+  const cx=64,cy=64,r=50,w=14,cap=m.cap,drv=Math.min(Math.max(0,m.driven),cap);
+  const ok=Math.min(drv,m.theoL),over=drv-ok;
+  let s=ringParts(cx,cy,r,w,[{f:ok/cap,c:"var(--butter)"},{f:over/cap,c:"var(--over)"}],"rgba(255,255,255,.2)");
+  const a=Math.min(1,m.theoL/cap)*2*Math.PI-Math.PI/2,r1=r-w/2-3,r2=r+w/2+3;
+  s+=`<line x1="${(cx+r1*Math.cos(a)).toFixed(1)}" y1="${(cy+r1*Math.sin(a)).toFixed(1)}" x2="${(cx+r2*Math.cos(a)).toFixed(1)}" y2="${(cy+r2*Math.sin(a)).toFixed(1)}" stroke="currentColor" stroke-width="2.5"/>`;
+  s+=`<text class="rv" x="${cx}" y="${cy+4}" text-anchor="middle">${f(m.driven/cap*100,0)} %</text><text class="ru" x="${cx}" y="${cy+22}" text-anchor="middle">du contrat</text>`;
+  return`<svg class="ring viz" viewBox="0 0 128 128" role="img" aria-label="${f(m.driven/cap*100,0)} % du contrat utilisé, ${f(m.driven)} km sur ${f(cap)}">${s}</svg>`;
+}
+const G0=10,G1=24,gDeg=v=>180-(Math.min(G1,Math.max(G0,v))-G0)/(G1-G0)*180;
+const gArc=(d0,d1)=>{const a=polar(120,108,84,d0),b=polar(120,108,84,d1);return`M${a[0].toFixed(1)} ${a[1].toFixed(1)}A84 84 0 0 1 ${b[0].toFixed(1)} ${b[1].toFixed(1)}`};
+const gZone=v=>v==null?null:v<15?["Bon","good"]:v<=18?["Moyen","warn"]:["Élevé","bad"];
+function gaugeSvg(v){
+  let s="";
+  [[10,15,"var(--good)"],[15,18,"var(--gold)"],[18,24,"var(--bad)"]].forEach(([a,b,c])=>{
+    s+=`<path d="${gArc(a===10?180:gDeg(a)-.8,b===24?0:gDeg(b)+.8)}" fill="none" stroke="${c}" stroke-width="16"/>`});
+  if(v!=null){const p=polar(120,108,84,gDeg(v));s+=`<circle class="gmark" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="10"/>`}
+  s+=`<text class="gv" x="120" y="104" text-anchor="middle">${v!=null?f(v,1):"–"}</text><text class="gu" x="120" y="124" text-anchor="middle">kWh/100 km</text><text class="gl" x="30" y="126" text-anchor="middle">10</text><text class="gl" x="210" y="126" text-anchor="middle">24</text>`;
+  return`<svg class="gauge viz" viewBox="0 0 240 132" role="img" aria-label="${v!=null?"Consommation moyenne "+f(v,1)+" kWh/100 km, zone "+gZone(v)[0].toLowerCase():"Consommation moyenne pas encore disponible"}">${s}</svg>`;
+}
+
 /* ---- Vues ---- */
 function reminder(m){
   if(m.notif)return`<div class="notif" role="status"><div class="lv small muted"><span>Rappel dans l'app</span><span>dimanche</span></div>
@@ -184,10 +216,16 @@ function vBilan(m){
    <section class="card hero">
     <div class="lv"><span class="tag" style="color:inherit">Compteur</span><span class="small muted">relevé du ${dm(m.last.d)}</span></div>
     <div class="drums" aria-label="${f(m.last.o)} kilomètres">${digits.map((d,i)=>`<div class="drum ${i===digits.length-1?"last":""}">${d}</div>`).join("")}<span class="unit">km</span></div>
-    <div class="lv small"><span>${f(m.driven)} / ${f(m.cap)} km contrat</span><span class="pill ${marge>=0?"good":"warn"}">${marge>=0?"✓ Marge":"! En avance de"} ${f(Math.abs(marge))} km</span></div>
-    <div class="meter" title="Trait : position théorique"><i style="width:${pctR}%"></i><b style="left:${pctT}%"></b></div>
-    <p class="small muted">Trait : ${f(m.theoL)} km théoriques au ${dm(m.last.d)} · ${projTxt}. Fin : ${dm(m.end)} ${dt(m.end).getUTCFullYear()}.</p>
-    <p class="small muted">Année ${m.yi+1} : ${f(m.yearKm)} / ${f(m.st.limit)} km.</p>
+    <div class="heroRow">
+     ${ringHero(m)}
+     <div class="heroTxt">
+      <span class="pill ${marge>=0?"good":"warn"}">${marge>=0?"✓ Marge":"! En avance de"} ${f(Math.abs(marge))} km</span>
+      <p class="small">${f(m.driven)} / ${f(m.cap)} km contrat</p>
+      <p class="small muted">Trait : ${f(m.theoL)} km théoriques au ${dm(m.last.d)}</p>
+      <p class="small muted">${projTxt}. Fin : ${dm(m.end)} ${dt(m.end).getUTCFullYear()}.</p>
+      <p class="small muted">Année ${m.yi+1} : ${f(m.yearKm)} / ${f(m.st.limit)} km.</p>
+     </div>
+    </div>
    </section>
    <section class="card">
     <div class="lv"><h2>${MO[td.getUTCMonth()]} ${td.getUTCFullYear()}</h2><span class="pill ${gap>=0?"good":"warn"}">${gap>=0?"✓ +":"! −"}${f(Math.abs(gap))} km</span></div>
@@ -205,15 +243,8 @@ function vBilan(m){
     <div class="tile"><span class="small muted">Coût</span><strong>${m.K&&m.driven?f(m.E/m.driven*100,2):"–"} €</strong><span class="small muted">/100 km</span></div>
     <div class="tile"><span class="small muted">Rendement charge</span><strong>${m.rendG!=null?f(m.rendG*100,0)+" %":m.carAvg&&m.K&&m.carAvg<=m.K/m.driven*100?f(m.carAvg/(m.K/m.driven*100)*100,0)+" %":"–"}</strong><span class="small muted">${f(m.K,0)} kWh · ${f(m.E,0)} €</span></div>
   </section>
-  <section class="card"><h2>Rendement par réglage</h2>
-    ${m.byAmps.length?`<div class="list">${m.byAmps.map(g=>`<div class="item"><div><strong>${g.k}</strong><br><span class="small muted">${g.nb} recharge${g.nb>1?"s":""} · ${f(g.kwh,1)} kWh prise → ${f(g.eb,1)} kWh batterie</span></div><strong class="big" style="white-space:nowrap">${f(g.eb/g.kwh*100,0)} %</strong></div>`).join("")}</div>
-    <p class="small muted">Énergie entrée dans la batterie (écart de % × ${f(m.bcap,1)} kWh) ÷ kWh lus sur le chargeur. Le % de la voiture est arrondi à l'unité : fiable sur des recharges de 30 % et plus, et de plus en plus précis avec le cumul. La capacité réglée décale tous les rendements d'autant, la comparaison entre ampérages reste juste.</p>`
-    :`<p class="small muted">Note le % de batterie avant et après chaque recharge : le rendement de chaque ampérage s'affiche ici.</p>`}</section>
-  <section class="card"><h2>Conso voiture entre deux recharges</h2>
-    <div class="pair"><div><span class="small muted">Moyenne</span><div class="big">${m.segAvg!=null?f(m.segAvg,1):"–"}</div><span class="small muted">kWh/100 km</span></div><div><span class="small muted">Dernière période</span><div class="big">${m.segs.length?f(m.segs[m.segs.length-1].c,1):"–"}</div><span class="small muted">${m.segs.length?f(m.segs[m.segs.length-1].km)+" km":"kWh/100 km"}</span></div></div>
-    <div class="chart" id="cS"></div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>Chaque période</span><span><i style="background:var(--s2)"></i>Moyenne glissante sur 5</span></div>
-    <p class="small muted">Écart de % entre la fin d'une recharge et le début de la suivante, ramené aux km du compteur. Inclut chauffage et veille.</p></section>
+  <div class="grid two">${vAmps(m)}${vPie(m)}</div>
+  ${vConso(m)}
   <section class="card">
     <div class="head"><h2>Km par semaine</h2><div class="seg" role="group" aria-label="Période">
       ${[[13,"3 mois"],[26,"6 mois"],[0,"Tout"]].map(([v,l])=>`<button data-range="${v}" aria-pressed="${range===v}">${l}</button>`).join("")}</div></div>
@@ -223,11 +254,49 @@ function vBilan(m){
   <div class="grid two">
    <section class="card"><h2>kWh/100 km par mois</h2><div class="chart" id="cK"></div>
     <div class="legend"><span><i style="background:var(--s1)"></i>Prise (écran du chargeur)</span><span><i style="background:var(--s2)"></i>Voiture (% batterie)</span></div></section>
-   <section class="card"><h2>€/100 km par mois</h2><div class="pair"><div><span class="small muted">Diesel ${f(m.st.diesel.conso,1)} L/100</span><div class="big">${f(dieselAt(m.today),2)} €</div><span class="small muted">/100 km</span></div><div><span class="small muted">Économie depuis le début</span><div class="big">${m.K&&m.driven?f(m.dieselTotal-m.E,0)+" €":"–"}</div><span class="small muted">sur ${f(m.driven)} km</span></div></div><div class="chart" id="cE"></div>
-    <p class="small muted">Énergie et carburant seuls, selon l'historique du prix du gazole. Abonnement et entretien non comptés.</p></section>
+   ${vEco(m)}
   </div>
   <section class="card"><h2>Cumul contre le théorique</h2><div class="chart" id="cC"></div>
     <div class="legend"><span><i style="background:var(--s1)"></i>Réel</span><span><i style="background:var(--s2)"></i>Théorique</span></div></section>`;
+}
+function vAmps(m){
+  const dom=m.byAmps.filter(g=>g.a!==999),mx=Math.max(...dom.map(g=>g.eb/g.kwh));
+  return`<section class="card"><h2>Rendement par réglage</h2>
+    ${m.byAmps.length?`<div class="hb">${m.byAmps.map(g=>{const p=g.eb/g.kwh*100,best=dom.length>1&&g.a!==999&&g.eb/g.kwh===mx;
+      return`<div class="hrow"><span class="hl">${g.k}</span><div class="htrk"><div class="hbar${best?" best":""}" style="width:${Math.min(100,p).toFixed(1)}%"></div></div><strong class="hv">${f(p,0)} %</strong></div><div class="small muted hsub">${g.nb} recharge${g.nb>1?"s":""} · ${f(g.kwh,1)} kWh prise → ${f(g.eb,1)} kWh batterie</div>`}).join("")}</div>
+    <p class="small muted">Énergie entrée dans la batterie (écart de % × ${f(m.bcap,1)} kWh) ÷ kWh lus sur le chargeur. Le % de la voiture est arrondi à l'unité : fiable sur des recharges de 30 % et plus, et de plus en plus précis avec le cumul. La capacité réglée décale tous les rendements d'autant, la comparaison entre ampérages reste juste.</p>`
+    :`<p class="small muted">Note le % de batterie avant et après chaque recharge : le rendement de chaque ampérage s'affiche ici.</p>`}</section>`;
+}
+function vPie(m){
+  const sp=m.split,eur=pieMode==="eur",val=x=>eur?x.eur:x.kwh,u=eur?" €":" kWh",tot=val(sp.dom)+val(sp.ext);
+  if(!(tot>0))return`<section class="card"><h2>Répartition des recharges</h2><p class="small muted">Le camembert apparaît après la première recharge.</p></section>`;
+  const rows=[["Domicile","var(--teal)",sp.dom],["Borne extérieure","var(--gold)",sp.ext]];
+  const seg=`<div class="seg" role="group" aria-label="Unité">${[["kwh","kWh"],["eur","Coût"]].map(([v,l])=>`<button data-pie="${v}" aria-pressed="${pieMode===v}">${l}</button>`).join("")}</div>`;
+  return`<section class="card"><div class="head"><h2>Répartition des recharges</h2>${seg}</div>
+    <div class="pieRow"><svg class="pie viz" viewBox="0 0 140 140" role="img" aria-label="Répartition des recharges : ${rows.map(r=>r[0]+" "+f(val(r[2])/tot*100,0)+" %").join(", ")}">${ringParts(70,70,50,20,rows.map(r=>({f:val(r[2])/tot,c:r[1]})),"var(--line)")}<text class="pv" x="70" y="76" text-anchor="middle">${f(tot,0)}</text><text class="ru" x="70" y="94" text-anchor="middle">${eur?"€":"kWh"}</text></svg>
+    <div class="pieLeg">${rows.map(r=>`<div class="pr"><span class="sw" style="background:${r[1]}"></span><span class="nm">${r[0]}</span><strong>${f(val(r[2])/tot*100,0)} %</strong></div><div class="small muted" style="margin:0 0 10px 16px">${f(val(r[2]),0)}${u}${r[2].kwh?` · ${f(r[2].eur/r[2].kwh,2)} €/kWh`:""}</div>`).join("")}</div></div></section>`;
+}
+function vConso(m){
+  const v=m.segAvg,z=gZone(v),ls=m.segs[m.segs.length-1];
+  return`<section class="card"><div class="head"><h2>Conso voiture entre deux recharges</h2>${z?`<span class="pill ${z[1]}">${z[0]}</span>`:""}</div>
+    ${gaugeSvg(v)}
+    <div class="legend" style="justify-content:center"><span><i style="background:var(--good)"></i>Bon &lt; 15</span><span><i style="background:var(--gold)"></i>Moyen 15–18</span><span><i style="background:var(--bad)"></i>Élevé &gt; 18</span></div>
+    <p class="small muted">${ls?`Dernière période : ${f(ls.c,1)} kWh/100 km sur ${f(ls.km)} km. `:""}Repères d'après les essais de l'Inster : l'hiver et l'autoroute font monter la conso.</p>
+    <div class="chart" id="cS"></div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Chaque période</span><span><i style="background:var(--s2)"></i>Moyenne glissante sur 5</span></div>
+    <p class="small muted">Écart de % entre la fin d'une recharge et le début de la suivante, ramené aux km du compteur. Inclut chauffage et veille.</p></section>`;
+}
+function vEco(m){
+  const ok=m.K&&m.driven,eco=m.dieselTotal-m.E,mx=Math.max(m.E,m.dieselTotal,1);
+  return`<section class="card"><h2>Économie face au diesel</h2>
+    ${ok?`<div><div class="heroNum${eco<0?" neg":""}">${eco<0?"−":""}${f(Math.abs(eco),0)} €</div><span class="small muted">${eco<0?"de plus que le diesel":"économisés"} depuis le début, sur ${f(m.driven)} km</span></div>
+    <div class="hb"><div class="hrow"><span class="hl">Inster</span><div class="htrk"><div class="hbar best" style="width:${(m.E/mx*100).toFixed(1)}%"></div></div><strong class="hv">${f(m.E,0)} €</strong></div>
+    <div class="hrow"><span class="hl">Diesel</span><div class="htrk"><div class="hbar" style="width:${(m.dieselTotal/mx*100).toFixed(1)}%"></div></div><strong class="hv">${f(m.dieselTotal,0)} €</strong></div></div>`
+    :`<p class="small muted">Le calcul apparaît après la première recharge et le premier relevé.</p>`}
+    <p class="small muted">Diesel de comparaison : ${f(m.st.diesel.conso,1)} L/100 km, soit ${f(dieselAt(m.today),2)} €/100 km aujourd'hui.</p>
+    <span class="tag">€/100 km par mois</span>
+    <div class="chart" id="cE"></div>
+    <p class="small muted">Énergie et carburant seuls, selon l'historique du prix du gazole. Abonnement et entretien non comptés.</p></section>`;
 }
 function drawCharts(m){
   const w=range?m.weeks.slice(-range):m.weeks;
@@ -343,6 +412,7 @@ $("#view").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
   if(b.dataset.go){tab="saisir";formKind=b.dataset.go;render();scrollTo(0,0)}
   if(b.dataset.range){range=+b.dataset.range;render()}
+  if(b.dataset.pie){pieMode=b.dataset.pie;render()}
   if(b.id==="dropDraft"){if(armed!=="dropDraft"){armed="dropDraft";b.textContent="Confirmer";return}
     armed=null;clearDraft();["cOdo","cSocA","cSocB","cKwh"].forEach(x=>$("#"+x).value="");render();toast("Recharge en cours effacée")}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
