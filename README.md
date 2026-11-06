@@ -1,6 +1,6 @@
 # Inster Compteur
 
-PWA de suivi du leasing de la Hyundai Inster : kilométrage (15 000 km/an, 36 mois), kWh côté prise, conso myHyundai, €/100 km et comparaison avec un diesel.
+PWA de suivi du leasing de la Hyundai Inster : kilométrage (15 000 km/an, 36 mois, 6 jours d'usage par semaine et 300 par an, soit 50 km par jour), kWh côté prise, conso myHyundai, €/100 km et comparaison avec un diesel.
 
 ## Données
 Les données restent uniquement dans le navigateur du téléphone (localStorage) : rien n'est envoyé ni stocké sur ce dépôt. La sauvegarde se fait par un fichier JSON, depuis Réglages. Ne pas déposer ces fichiers ici.

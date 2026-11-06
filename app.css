@@ -108,3 +108,6 @@ input[type=file]{padding:8px}
 .pieLeg{flex:1;min-width:0}
 .pr{display:flex;align-items:center;gap:6px}.pr .nm{flex:1}
 .heroNum{font:600 44px/1.1 var(--display)}.heroNum.neg{color:var(--warn)}
+
+.tiles.scale .tile{border:0;text-align:left;cursor:pointer;font:inherit;color:inherit;border-top:3px solid transparent;min-height:44px}
+.tiles.scale .tile[aria-pressed=true]{background:var(--bg);border-top-color:var(--butter)}

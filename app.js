@@ -11,13 +11,13 @@ const uid=()=>Math.random().toString(36).slice(2,9);
 const KEY="inster-compteur-v1";
 const localToday=()=>{const x=new Date();return Date.UTC(x.getFullYear(),x.getMonth(),x.getDate())/DAY};
 
-function fresh(){return{set:{start:"2026-11-05",months:36,limit:15000,odo0:0,tarif:"base",prices:{base:.2001,hp:.2142,hc:.1589},diesel:{conso:7.5,prices:[{from:"2026-11-05",price:2.385}]},cap:42,soc0:null},readings:[],charges:[]}}
+function fresh(){return{set:{start:"2026-11-05",months:36,limit:15000,dw:6,dy:300,odo0:0,tarif:"base",prices:{base:.2001,hp:.2142,hc:.1589},diesel:{conso:7.5,prices:[{from:"2026-11-05",price:2.385}]},cap:42,soc0:null},readings:[],charges:[]}}
 let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.set)S=fresh();
-if(!(S.set.cap>0))S.set.cap=42;if(S.set.soc0===undefined)S.set.soc0=null;
+if(!(S.set.cap>0))S.set.cap=42;if(!(S.set.dw>0))S.set.dw=6;if(!(S.set.dy>0))S.set.dy=300;if(S.set.soc0===undefined)S.set.soc0=null;
 const dieselAt=d=>{const P=S.set.diesel.prices;let p=P[0].price;for(const x of P)if(n(x.from)<=d)p=x.price;return p*S.set.diesel.conso};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
-let tab="bilan",range=13,formKind="charge",pieMode="kwh";
+let tab="bilan",range=13,formKind="charge",pieMode="kwh",scale="w";
 /* brouillon de recharge : survit à la fermeture de l'app */
 const DKEY="inster-brouillon-recharge",DF=["cDate","cOdo","cSocA","cSocB","cKwh","cPlace","cAmps","cPrice"];
 const getDraft=()=>{try{return JSON.parse(localStorage.getItem(DKEY))}catch(e){return null}};
@@ -37,7 +37,7 @@ function model(){
   const pts=[{d:start,o:+st.odo0},...odoList.map(r=>({d:n(r.date),o:r.odo}))];
   const odoAt=d=>{if(d<=pts[0].d)return pts[0].o;for(let i=1;i<pts.length;i++)if(d<=pts[i].d){const a=pts[i-1],b=pts[i];return a.o+(b.o-a.o)*(d-a.d)/Math.max(1,b.d-a.d)}return pts[pts.length-1].o};
   const last=pts[pts.length-1];
-  const cap=st.limit*st.months/12,total=end-start,wk=st.limit/52,mq=st.limit/12;
+  const cap=st.limit*st.months/12,total=end-start,kmDay=st.limit/st.dy,wk=kmDay*st.dw,mq=st.limit/12;
   const driven=last.o-st.odo0;
   const elapsedL=Math.max(1,last.d-start);
   const theoL=cap*elapsedL/total;
@@ -89,6 +89,7 @@ function model(){
   const carAvg=segAvg!=null?segAvg:withC.length?withC.reduce((s,x)=>s+x.k*x.c,0)/withC.reduce((s,x)=>s+x.k,0):null;
   /* rappel */
   const dow=td.getUTCDay(),mon=today-((dow+6)%7);
+  const wUsed=Math.max(0,odoAt(L)-odoAt(Math.max(mon-1,start)));
   const has=odoList.some(r=>n(r.date)>=mon);
   const firstSun=start+((7-dt(start).getUTCDay())%7);
   const notif=dow===0&&!has;
@@ -96,7 +97,7 @@ function model(){
   const dieselTotal=months.reduce((x,o)=>x+o.dcost,0);
   const sp=pl=>{const a=chs.filter(c=>c.place===pl);return{nb:a.length,kwh:a.reduce((s,c)=>s+c.kwh,0),eur:a.reduce((s,c)=>s+c.kwh*c.price,0)}};
   const split={dom:sp("dom"),ext:sp("ext")};
-  return{split,odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
+  return{kmDay,wUsed,split,odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
 }
 
 /* ---- Graphiques ---- */
@@ -121,7 +122,7 @@ function bars(host,o){
   const it=o.items;if(!it.length){host.innerHTML=`<p class="muted small">${o.empty}</p>`;return}
   const yMax=nice(Math.max(...it.map(i=>Math.max(i.v,i.ref||0)),o.target||0)*1.05);
   const{s:ax,ys}=axis(W,H,ml,mr,mt,mb,yMax,0,v=>f(v,o.dec||0));
-  const band=(W-ml-mr)/it.length,bw=Math.max(2,Math.min(22,band-2));
+  const band=(W-ml-mr)/it.length,bw=Math.max(2,Math.min(o.bw||22,band-2));
   const xOf=i=>ml+band*i+band/2;
   let s=ax,step=Math.ceil(it.length/6);
   it.forEach((d,i)=>{const y=ys(d.v),h=H-mb-y,x=xOf(i)-bw/2,r=Math.min(4,h,bw/2);
@@ -245,19 +246,13 @@ function vBilan(m){
   </section>
   <div class="grid two">${vAmps(m)}${vPie(m)}</div>
   ${vConso(m)}
-  <section class="card">
-    <div class="head"><h2>Km par semaine</h2><div class="seg" role="group" aria-label="Période">
-      ${[[13,"3 mois"],[26,"6 mois"],[0,"Tout"]].map(([v,l])=>`<button data-range="${v}" aria-pressed="${range===v}">${l}</button>`).join("")}</div></div>
-    <div class="chart" id="cW"></div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>Dans l'objectif</span><span><i style="background:var(--s2)"></i>Au-dessus de ${f(m.wk)} km</span></div>
-  </section>
+  ${vKm(m)}
   <div class="grid two">
    <section class="card"><h2>kWh/100 km par mois</h2><div class="chart" id="cK"></div>
     <div class="legend"><span><i style="background:var(--s1)"></i>Prise (écran du chargeur)</span><span><i style="background:var(--s2)"></i>Voiture (% batterie)</span></div></section>
    ${vEco(m)}
   </div>
-  <section class="card"><h2>Cumul contre le théorique</h2><div class="chart" id="cC"></div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>Réel</span><span><i style="background:var(--s2)"></i>Théorique</span></div></section>`;
+  `;
 }
 function vAmps(m){
   const dom=m.byAmps.filter(g=>g.a!==999),mx=Math.max(...dom.map(g=>g.eb/g.kwh));
@@ -298,16 +293,49 @@ function vEco(m){
     <div class="chart" id="cE"></div>
     <p class="small muted">Énergie et carburant seuls, selon l'historique du prix du gazole. Abonnement et entretien non comptés.</p></section>`;
 }
+function vKm(m){
+  const st=m.st,td=dt(m.today),sc=scale;
+  const tabs=[["w","Semaine",m.wk,`cette semaine : ${f(m.wUsed)} km`],["m","Mois",m.mq,`${MO[td.getUTCMonth()]} : ${f(m.used)} km`],["y","Année",st.limit,`année ${m.yi+1} : ${f(m.yearKm)} km`],["t",f(st.months/12,0)+" ans",m.cap,`${f(m.driven)} km roulés`]];
+  const cap={w:`${st.dw} jours × ${f(m.kmDay,0)} km = ${f(m.wk)} km par semaine d'usage.`,m:`${f(st.dy/12,0)} jours d'usage par mois (${st.dy} ÷ 12) × ${f(m.kmDay,0)} km = ${f(m.mq)} km.`,y:`${st.dy} jours d'usage × ${f(m.kmDay,0)} km = ${f(st.limit)} km par année de contrat.`,t:`${st.months} mois : ${f(m.cap)} km. La projection prolonge le rythme moyen observé.`}[sc];
+  const leg=sc==="t"?`<span><i style="background:var(--s1)"></i>Réel</span><span><i style="background:var(--s2)"></i>Théorique</span><span><i style="background:var(--muted)"></i>Projection</span>`
+    :`<span><i style="background:var(--s1)"></i>Dans l'objectif</span><span><i style="background:var(--s2)"></i>Au-dessus de l'objectif</span>`;
+  return`<section class="card">
+    <div class="head"><h2>Km théoriques et réels</h2>${sc==="w"?`<div class="seg" role="group" aria-label="Période">${[[13,"3 mois"],[26,"6 mois"],[0,"Tout"]].map(([v,l])=>`<button data-range="${v}" aria-pressed="${range===v}">${l}</button>`).join("")}</div>`:""}</div>
+    <div class="tiles scale" role="group" aria-label="Échelle">${tabs.map(t=>`<button class="tile" data-scale="${t[0]}" aria-pressed="${sc===t[0]}"><span class="small muted">${t[1]}</span><strong>${f(t[2])} km</strong><span class="small muted">${t[3]}</span></button>`).join("")}</div>
+    <div class="chart" id="cW"></div>
+    <div class="legend">${leg}</div>
+    <p class="small muted">${cap}</p></section>`;
+}
+function totalSeries(m){
+  const st=m.st,L=[],real=[],theo=[],proj=[],rate=m.proj!=null?m.driven/m.elapsedL:null;let li=-1;
+  const days=[];for(let d=m.start;d<=m.end;d+=7)days.push(d);
+  if(!days.includes(m.end))days.push(m.end);
+  if(m.odoList.length&&!days.includes(m.last.d)){days.push(m.last.d);days.sort((a,b)=>a-b)}
+  for(let i=0;i<days.length;i++){
+    const d=days[i],x=dt(d);L.push(MO[x.getUTCMonth()]+" "+String(x.getUTCFullYear()).slice(2));
+    real.push(d<=m.last.d?m.odoAt(d)-st.odo0:null);if(d<=m.last.d)li=i;
+    theo.push(m.cap*(d-m.start)/m.total);
+    proj.push(rate!=null&&d>m.last.d?m.driven+rate*(d-m.last.d):null)}
+  if(rate!=null&&li>=0)proj[li]=real[li];
+  return{L,real,theo,proj};
+}
 function drawCharts(m){
-  const w=range?m.weeks.slice(-range):m.weeks;
-  bars($("#cW"),{items:w.map(x=>({v:x.km,label:dm(x.d).replace(/\.$/,""),hi:x.km>m.wk,tip:`<strong>Semaine du ${dm(x.d-6)}</strong><br>${f(x.km)} km`})),target:m.wk,targetLabel:`Objectif ${f(m.wk)} km`,aria:"Kilomètres par semaine",empty:"Le graphique apparaît après le premier relevé."});
+  if(scale==="w"){const w=range?m.weeks.slice(-range):m.weeks;
+    bars($("#cW"),{items:w.map(x=>({v:x.km,label:dm(x.d).replace(/\.$/,""),hi:x.km>m.wk,tip:`<strong>Semaine du ${dm(x.d-6)}</strong><br>${f(x.km)} km`})),target:m.wk,targetLabel:`Objectif ${f(m.wk)} km`,aria:"Kilomètres par semaine",empty:"Le graphique apparaît après le premier relevé."})}
+  else if(scale==="m"){
+    bars($("#cW"),{items:m.months.map(x=>({v:x.km,label:x.label,hi:x.km>m.mq,tip:`<strong>${x.label} ${x.y}</strong><br>${f(x.km)} km`})),target:m.mq,targetLabel:`Objectif ${f(m.mq)} km`,aria:"Kilomètres par mois",empty:"Le graphique apparaît après le premier relevé."})}
+  else if(scale==="y"){const yrs=[];
+    for(let i=0;i<Math.ceil(m.st.months/12);i++){const ys=m.start+Math.round(i*365.25),ye=m.start+Math.round((i+1)*365.25);if(i>0&&ys>m.last.d)break;
+      const km=m.odoAt(Math.min(ye,m.last.d))-m.odoAt(Math.min(ys,m.last.d));yrs.push({v:km,label:"Année "+(i+1),hi:km>m.st.limit,tip:`<strong>Année ${i+1}</strong><br>${f(km)} km sur ${f(m.st.limit)}`})}
+    bars($("#cW"),{items:yrs,bw:56,target:m.st.limit,targetLabel:`Objectif ${f(m.st.limit)} km`,endLabel:true,aria:"Kilomètres par année de contrat",empty:"Le graphique apparaît après le premier relevé."})}
+  else{const t=totalSeries(m);
+    lines($("#cW"),{labels:t.L,dec:0,zero:true,unit:" km",series:[{name:"Réel",c:"var(--s1)",v:t.real},{name:"Théorique",c:"var(--s2)",dash:true,v:t.theo},{name:"Projection",c:"var(--muted)",dash:true,v:t.proj}],aria:"Kilomètres cumulés sur la durée du contrat, comparés au théorique",empty:"Le graphique apparaît après le premier relevé."})}
   const sg=m.segs,ma=sg.map((_,i)=>{const w=sg.slice(Math.max(0,i-4),i+1);return w.reduce((s,x)=>s+x.e,0)/w.reduce((s,x)=>s+x.km,0)*100});
   lines($("#cS"),{labels:sg.map(x=>dm(n(x.date))),dots:true,dec:1,series:[{name:"Période",c:"var(--s1)",v:sg.map(x=>x.c)},{name:"Moyenne",c:"var(--s2)",dash:true,v:ma}],aria:"Consommation entre deux recharges en kilowattheures pour 100 km",empty:"Il faut au moins deux périodes entre recharges."});
   const mo=m.months;
   lines($("#cK"),{labels:mo.map(x=>x.label),dots:true,dec:1,series:[{name:"Prise",c:"var(--s1)",v:mo.map(x=>x.prise)},{name:"Voiture",c:"var(--s2)",v:mo.map(x=>x.car)}],aria:"Consommation mensuelle en kilowattheures pour 100 km",empty:"Il faut au moins deux mois de données."});
   const me=mo.filter(x=>x.euro!=null);
   bars($("#cE"),{items:me.map(x=>({v:x.euro,ref:x.ref,label:x.label,tip:`<strong>${x.label} ${x.y}</strong><br>${f(x.euro,2)} €/100 km<br>Diesel : ${f(x.ref,2)} €/100 km<br>${f(x.kwh,0)} kWh · ${f(x.km)} km`})),refLabel:"Diesel",dec:1,endLabel:true,aria:"Coût mensuel pour 100 km",empty:"Le graphique apparaît après la première recharge."});
-  lines($("#cC"),{labels:m.cumul.map(c=>dm(c.d)),dec:0,zero:true,unit:" km",series:[{name:"Réel",c:"var(--s1)",v:m.cumul.map(c=>c.real)},{name:"Théorique",c:"var(--s2)",dash:true,v:m.cumul.map(c=>c.theo)}],aria:"Kilomètres cumulés comparés au théorique",empty:"Il faut au moins deux relevés."});
 }
 function vSaisir(m){
   const today=iso(m.today),p=m.st.prices[m.st.tarif];
@@ -353,8 +381,9 @@ function vRegl(m){
   return`<section class="card"><h2>Contrat</h2>
     <div class="pair"><label>Début<input type="date" id="sStart" value="${s.start}"></label><label>Durée (mois)<input id="sMonths" inputmode="numeric" value="${s.months}"></label></div>
     <div class="pair"><label>Limite km/an<input id="sLimit" inputmode="numeric" value="${s.limit}"></label><label>Compteur à la livraison<input id="sOdo" inputmode="numeric" value="${s.odo0}"></label></div>
+    <div class="pair"><label>Jours d'usage par semaine<input id="sDw" inputmode="numeric" value="${s.dw}"></label><label>Jours d'usage par an<input id="sDy" inputmode="numeric" value="${s.dy}"></label></div>
     <div class="pair"><label>Batterie à la livraison (%)<input id="sSoc0" inputmode="numeric" value="${s.soc0??""}" placeholder="98"></label><label>Capacité utile batterie (kWh)<input id="sCap" inputmode="decimal" value="${f(s.cap,1)}"></label></div>
-    <p class="small muted">${f(s.limit/52,1)} km/semaine, ${f(s.limit/12)} km/mois, ${f(m.cap)} km au total.</p></section>
+    <p class="small muted">${f(m.kmDay,0)} km par jour d'usage, ${f(m.wk)} km/semaine, ${f(s.limit/12)} km/mois, ${f(m.cap)} km au total.</p></section>
    <section class="card"><h2>Tarif Bleu EDF</h2>
     <label>Option utilisée pour les recharges à domicile<select id="sTarif">${[["base","Base"],["hc","Heures creuses"],["hp","Heures pleines"]].map(([v,l])=>`<option value="${v}" ${s.tarif===v?"selected":""}>${l}</option>`).join("")}</select></label>
     <div class="pair"><label>Base (€/kWh)<input id="pBase" inputmode="decimal" value="${f(s.prices.base,4)}"></label><label>Heures creuses<input id="pHc" inputmode="decimal" value="${f(s.prices.hc,4)}"></label></div>
@@ -403,7 +432,7 @@ function parseBackup(t){
   const charges=o.charges.map(c=>{if(!D.test(c.date)||!ok(c.kwh)||!ok(c.price))throw new Error("Une recharge est invalide (date "+String(c.date).slice(0,10)+").");const pc=v=>ok(v)&&v<=100?v:null;return{id:uid(),date:c.date,kwh:c.kwh,amps:ok(c.amps)?c.amps:0,place:c.place==="ext"?"ext":"dom",price:c.price,odo:ok(c.odo)?c.odo:null,socA:pc(c.socA),socB:pc(c.socB)}});
   const s=o.set,p=s.prices||{};
   if(!D.test(s.start)||!ok(s.months)||!ok(s.limit)||!ok(s.odo0))throw new Error("Les réglages du contrat sont invalides dans ce fichier.");
-  return{set:{start:s.start,months:s.months,limit:s.limit,odo0:s.odo0,tarif:["base","hc","hp"].includes(s.tarif)?s.tarif:"base",prices:{base:ok(p.base)?p.base:.2001,hc:ok(p.hc)?p.hc:.1589,hp:ok(p.hp)?p.hp:.2142},diesel:{conso:s.diesel&&ok(s.diesel.conso)?s.diesel.conso:7.5,prices:(()=>{const dd=s.diesel||{};const L=Array.isArray(dd.prices)?dd.prices.filter(x=>x&&D.test(x.from)&&ok(x.price)).map(x=>({from:x.from,price:x.price})).sort((x,y)=>x.from<y.from?-1:1):[];return L.length?L:[{from:s.start,price:ok(dd.price)?dd.price:2.385}]})()},cap:ok(s.cap)&&s.cap>0?s.cap:42,soc0:ok(s.soc0)&&s.soc0<=100?s.soc0:null},readings,charges,exportedAt:D.test(o.exportedAt)?o.exportedAt:null};
+  return{set:{start:s.start,months:s.months,limit:s.limit,dw:ok(s.dw)&&s.dw>=1&&s.dw<=7?s.dw:6,dy:ok(s.dy)&&s.dy>=1&&s.dy<=366?s.dy:300,odo0:s.odo0,tarif:["base","hc","hp"].includes(s.tarif)?s.tarif:"base",prices:{base:ok(p.base)?p.base:.2001,hc:ok(p.hc)?p.hc:.1589,hp:ok(p.hp)?p.hp:.2142},diesel:{conso:s.diesel&&ok(s.diesel.conso)?s.diesel.conso:7.5,prices:(()=>{const dd=s.diesel||{};const L=Array.isArray(dd.prices)?dd.prices.filter(x=>x&&D.test(x.from)&&ok(x.price)).map(x=>({from:x.from,price:x.price})).sort((x,y)=>x.from<y.from?-1:1):[];return L.length?L:[{from:s.start,price:ok(dd.price)?dd.price:2.385}]})()},cap:ok(s.cap)&&s.cap>0?s.cap:42,soc0:ok(s.soc0)&&s.soc0<=100?s.soc0:null},readings,charges,exportedAt:D.test(o.exportedAt)?o.exportedAt:null};
 }
 /* ---- Interactions ---- */
 $("#nav").addEventListener("click",e=>{if(e.target.dataset.t){tab=e.target.dataset.t;render();scrollTo(0,0)}});
@@ -413,6 +442,7 @@ $("#view").addEventListener("click",e=>{
   if(b.dataset.go){tab="saisir";formKind=b.dataset.go;render();scrollTo(0,0)}
   if(b.dataset.range){range=+b.dataset.range;render()}
   if(b.dataset.pie){pieMode=b.dataset.pie;render()}
+  if(b.dataset.scale){scale=b.dataset.scale;render()}
   if(b.id==="dropDraft"){if(armed!=="dropDraft"){armed="dropDraft";b.textContent="Confirmer";return}
     armed=null;clearDraft();["cOdo","cSocA","cSocB","cKwh"].forEach(x=>$("#"+x).value="");render();toast("Recharge en cours effacée")}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
@@ -448,7 +478,7 @@ $("#view").addEventListener("change",e=>{
     rd.onerror=()=>showErr("#ioErr","Ce fichier ne peut pas être lu. Choisis un autre fichier.");rd.readAsText(fl);return}
   if(id==="cPlace"){const p=$("#cPrice");p.value=v==="dom"?f(s.prices[s.tarif],4):"";$("#cAmps").disabled=v==="ext";saveDraft();if(v==="ext")p.focus();return}
   if(DF.includes(id)){saveDraft();return}
-  const map={sStart:()=>s.start=v,sMonths:()=>s.months=Math.max(1,num(v)||36),sLimit:()=>s.limit=num(v)||15000,sOdo:()=>s.odo0=num(v)||0,sTarif:()=>s.tarif=v,pBase:()=>s.prices.base=num(v)||0,pHc:()=>s.prices.hc=num(v)||0,pHp:()=>s.prices.hp=num(v)||0,dConso:()=>s.diesel.conso=num(v)||0,sCap:()=>s.cap=num(v)>0?num(v):42,sSoc0:()=>{const x=num(v);s.soc0=x>=0&&x<=100?x:null}};
+  const map={sStart:()=>s.start=v,sMonths:()=>s.months=Math.max(1,num(v)||36),sLimit:()=>s.limit=num(v)||15000,sDw:()=>s.dw=Math.min(7,Math.max(1,num(v)||6)),sDy:()=>s.dy=Math.min(366,Math.max(1,num(v)||300)),sOdo:()=>s.odo0=num(v)||0,sTarif:()=>s.tarif=v,pBase:()=>s.prices.base=num(v)||0,pHc:()=>s.prices.hc=num(v)||0,pHp:()=>s.prices.hp=num(v)||0,dConso:()=>s.diesel.conso=num(v)||0,sCap:()=>s.cap=num(v)>0?num(v):42,sSoc0:()=>{const x=num(v);s.soc0=x>=0&&x<=100?x:null}};
   if(map[id]){map[id]();save();render()}
 });
 $("#view").addEventListener("submit",e=>{
