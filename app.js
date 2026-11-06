@@ -296,7 +296,7 @@ function vEco(m){
 function vKm(m){
   const st=m.st,td=dt(m.today),sc=scale;
   const tabs=[["w","Semaine",m.wk,`cette semaine : ${f(m.wUsed)} km`],["m","Mois",m.mq,`${MO[td.getUTCMonth()]} : ${f(m.used)} km`],["y","Année",st.limit,`année ${m.yi+1} : ${f(m.yearKm)} km`],["t",f(st.months/12,0)+" ans",m.cap,`${f(m.driven)} km roulés`]];
-  const cap={w:`${st.dw} jours × ${f(m.kmDay,0)} km = ${f(m.wk)} km par semaine d'usage.`,m:`${f(st.dy/12,0)} jours d'usage par mois (${st.dy} ÷ 12) × ${f(m.kmDay,0)} km = ${f(m.mq)} km.`,y:`${st.dy} jours d'usage × ${f(m.kmDay,0)} km = ${f(st.limit)} km par année de contrat.`,t:`${st.months} mois : ${f(m.cap)} km. La projection prolonge le rythme moyen observé.`}[sc];
+  const cap={w:`${st.dw} jours × ${f(m.kmDay,m.kmDay%1?1:0)} km = ${f(m.wk)} km par semaine d'usage.`,m:`${f(st.dy/12,0)} jours d'usage par mois (${st.dy} ÷ 12) × ${f(m.kmDay,m.kmDay%1?1:0)} km = ${f(m.mq)} km.`,y:`${st.dy} jours d'usage × ${f(m.kmDay,m.kmDay%1?1:0)} km = ${f(st.limit)} km par année de contrat.`,t:`${st.months} mois : ${f(m.cap)} km. La projection prolonge le rythme moyen observé.`}[sc];
   const leg=sc==="t"?`<span><i style="background:var(--s1)"></i>Réel</span><span><i style="background:var(--s2)"></i>Théorique</span><span><i style="background:var(--muted)"></i>Projection</span>`
     :`<span><i style="background:var(--s1)"></i>Dans l'objectif</span><span><i style="background:var(--s2)"></i>Au-dessus de l'objectif</span>`;
   return`<section class="card">
@@ -383,7 +383,7 @@ function vRegl(m){
     <div class="pair"><label>Limite km/an<input id="sLimit" inputmode="numeric" value="${s.limit}"></label><label>Compteur à la livraison<input id="sOdo" inputmode="numeric" value="${s.odo0}"></label></div>
     <div class="pair"><label>Jours d'usage par semaine<input id="sDw" inputmode="numeric" value="${s.dw}"></label><label>Jours d'usage par an<input id="sDy" inputmode="numeric" value="${s.dy}"></label></div>
     <div class="pair"><label>Batterie à la livraison (%)<input id="sSoc0" inputmode="numeric" value="${s.soc0??""}" placeholder="98"></label><label>Capacité utile batterie (kWh)<input id="sCap" inputmode="decimal" value="${f(s.cap,1)}"></label></div>
-    <p class="small muted">${f(m.kmDay,0)} km par jour d'usage, ${f(m.wk)} km/semaine, ${f(s.limit/12)} km/mois, ${f(m.cap)} km au total.</p></section>
+    <p class="small muted">${f(m.kmDay,m.kmDay%1?1:0)} km par jour d'usage, ${f(m.wk)} km/semaine, ${f(s.limit/12)} km/mois, ${f(m.cap)} km au total.</p></section>
    <section class="card"><h2>Tarif Bleu EDF</h2>
     <label>Option utilisée pour les recharges à domicile<select id="sTarif">${[["base","Base"],["hc","Heures creuses"],["hp","Heures pleines"]].map(([v,l])=>`<option value="${v}" ${s.tarif===v?"selected":""}>${l}</option>`).join("")}</select></label>
     <div class="pair"><label>Base (€/kWh)<input id="pBase" inputmode="decimal" value="${f(s.prices.base,4)}"></label><label>Heures creuses<input id="pHc" inputmode="decimal" value="${f(s.prices.hc,4)}"></label></div>
