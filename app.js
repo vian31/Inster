@@ -262,7 +262,6 @@ function vSaisir(m){
     <p class="small muted">Dernier relevé : ${f(m.last.o)} km le ${dm(m.last.d)}. Saisis le total du compteur, l'app calcule la distance.</p>
     <div class="pair"><label>Date<input type="date" id="rDate" value="${today}"></label>
     <label>Compteur (km)<input id="rOdo" inputmode="numeric" placeholder="${Math.round(m.last.o+m.wk)}"></label></div>
-    <label>Conso myHyundai sur la période, kWh/100 km (facultatif)<input id="rCons" inputmode="decimal" placeholder="15,2"></label>
     <p class="small muted" id="rPrev" aria-live="polite">Objectif de la semaine : ${f(m.wk)} km.</p>
     <p class="err" id="rErr" hidden></p>
     <div><button class="btn">Enregistrer le relevé</button></div></form>`;
@@ -271,7 +270,7 @@ function vSaisir(m){
 function vHisto(m){
   const a=[...m.reads.map(r=>({...r,t:"r"})),...m.chs.map(c=>({...c,t:"c"}))].sort((x,y)=>x.date<y.date?1:x.date>y.date?-1:0);
   const rows=a.slice(0,40).map(e=>{
-    const line=e.t==="r"?`<strong>Relevé ${f(e.odo)} km</strong><br><span class="small muted">${e.conso?f(e.conso,1)+" kWh/100 km voiture":"Conso voiture non saisie"}</span>`
+    const line=e.t==="r"?`<strong>Relevé ${f(e.odo)} km</strong>${e.conso?`<br><span class="small muted">${f(e.conso,1)} kWh/100 km voiture</span>`:""}`
       :`<strong>Recharge ${f(e.kwh,1)} kWh</strong><br><span class="small muted">${e.place==="dom"?"Domicile · "+e.amps+" A":"Borne extérieure"} · ${f(e.kwh*e.price,2)} €${e.odo!=null?" · "+f(e.odo)+" km":""}${e.socA!=null&&e.socB!=null?" · "+e.socA+" → "+e.socB+" %"+(e.socB>e.socA?" · rendement "+f((e.socB-e.socA)/100*m.bcap/e.kwh*100,0)+" %":""):""}</span>`;
     return`<div class="item"><div><span class="small muted">${dm(n(e.date))} ${dt(n(e.date)).getUTCFullYear()}</span><br>${line}</div><button class="btn ghost small" data-del="${e.t}:${e.id}">Supprimer</button></div>`}).join("");
   return`<section class="card"><h2>Historique</h2><div class="list">${rows||'<p class="muted">Aucune saisie pour le moment. Ajoute un relevé dans l\'onglet Saisir.</p>'}</div>${a.length>40?`<p class="small muted">Les ${f(a.length-40)} saisies plus anciennes sont masquées.</p>`:""}</section>`;
@@ -398,14 +397,14 @@ $("#view").addEventListener("submit",e=>{
     if(sa!=null&&!(sa>=0&&sb<=100&&sb>sa))return showErr("#cErr","Le % après doit être plus grand que le % avant, entre 0 et 100.");
     S.charges.push({id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p,odo:o,socA:sa,socB:sb});save();["#cKwh","#cOdo","#cSocA","#cSocB"].forEach(x=>$(x).value="");clearDraft();render();toast("Recharge enregistrée");
   }else{
-    const date=$("#rDate").value,o=num($("#rOdo").value),c=num($("#rCons").value);
+    const date=$("#rDate").value,o=num($("#rOdo").value);
     if(!date||n(date)>m.today)return showErr("#rErr","Choisis une date qui n'est pas dans le futur.");
     if(!(o>=0))return showErr("#rErr","Saisis le total affiché au compteur.");
     const d=n(date),prev=Math.max(+S.set.odo0,...S.readings.filter(r=>n(r.date)<d).map(r=>r.odo)),mine=S.readings.filter(r=>n(r.date)>d).map(r=>r.odo);
     if(o<prev)return showErr("#rErr",`Le compteur ne peut pas être inférieur à ${f(prev)} km à cette date.`);
     if(mine.length&&o>Math.min(...mine))return showErr("#rErr",`Un relevé plus récent indique ${f(Math.min(...mine))} km.`);
     S.readings=S.readings.filter(r=>r.date!==date);
-    S.readings.push({id:uid(),date,odo:o,conso:c>0?c:null});save();$("#rOdo").value="";$("#rCons").value="";render();toast("Relevé enregistré");
+    S.readings.push({id:uid(),date,odo:o,conso:null});save();$("#rOdo").value="";render();toast("Relevé enregistré");
   }
 });
 let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(()=>{if(tab==="bilan")drawCharts(model())},150)});
