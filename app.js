@@ -40,12 +40,16 @@ function model(){
   const cap=st.limit*st.months/12,total=end-start,kmDay=st.limit/st.dy,wk=kmDay*st.dw,mq=st.limit/12;
   const driven=last.o-st.odo0;
   const elapsedL=Math.max(1,last.d-start);
-  const theoL=cap*elapsedL/total;
-  const proj=odoList.length&&elapsedL>=14?driven/elapsedL*total:null;
+  /* jours d'usage : du lundi au dw-ième jour de la semaine (jour 0 du calendrier = jeudi 1er janv. 1970) */
+  const isUse=d=>(d+3)%7<st.dw,ud=(x,y)=>{let c=0;for(let d=x;d<=y;d++)if(isUse(d))c++;return c};
+  const udTot=Math.max(1,ud(start,end-1)),udL=ud(start,last.d);
+  const theoL=Math.min(cap,kmDay*udL);
+  const proj=odoList.length&&elapsedL>=14&&udL?driven/udL*udTot:null;
   /* semaines lun-dim */
   const weeks=[];
   let sun=start+((7-dt(start).getUTCDay())%7);
   for(;sun<=last.d&&odoList.length;sun+=7){weeks.push({d:sun,km:odoAt(sun)-odoAt(sun-7)})}
+  if(odoList.length&&last.d>sun-7)weeks.push({d:sun,km:last.o-odoAt(sun-7),partial:true});
   /* énergie batterie (% × capacité) */
   const bcap=+st.cap||42;
   const soc=chs.filter(c=>c.socA!=null&&c.socB!=null&&c.socB>c.socA).map(c=>({...c,eb:(c.socB-c.socA)/100*bcap,r:(c.socB-c.socA)/100*bcap/c.kwh}));
@@ -76,10 +80,10 @@ function model(){
   }
   /* mois en cours */
   const td=dt(today),a=Date.UTC(td.getUTCFullYear(),td.getUTCMonth(),1)/DAY,b=Date.UTC(td.getUTCFullYear(),td.getUTCMonth()+1,0)/DAY;
-  const from=Math.max(a,start),span=b-from+1,quota=mq*span/(b-a+1);
-  const L=Math.min(last.d,today);const prog=L<from?0:(L-from+1)/span;
+  const from=Math.max(a,start),udM=Math.max(1,ud(from,b)),quota=mq*udM/Math.max(1,ud(a,b));
+  const L=Math.min(last.d,today);
   const used=L<from?0:odoAt(L)-odoAt(from-1);
-  const theoUsed=quota*prog;
+  const theoUsed=L<from?0:Math.min(quota,kmDay*ud(from,L));
   /* année de contrat */
   const yi=Math.max(0,Math.floor((today-start)/365.25)),ya=start+Math.round(yi*365.25);
   const yearKm=last.o-odoAt(ya);
@@ -97,7 +101,7 @@ function model(){
   const dieselTotal=months.reduce((x,o)=>x+o.dcost,0);
   const sp=pl=>{const a=chs.filter(c=>c.place===pl);return{nb:a.length,kwh:a.reduce((s,c)=>s+c.kwh,0),eur:a.reduce((s,c)=>s+c.kwh*c.price,0)}};
   const split={dom:sp("dom"),ext:sp("ext")};
-  return{kmDay,wUsed,split,odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
+  return{ud,udTot,udL,kmDay,wUsed,split,odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
 }
 
 /* ---- Graphiques ---- */
@@ -172,13 +176,17 @@ function ringParts(cx,cy,r,w,parts,track){
 }
 const SCALES=["w","m","y","t"];
 function ringData(m,sc){
-  const st=m.st,Ld=m.L,td=dt(m.today);
-  if(sc==="w"){const ws=Math.max(m.mon,m.start),we=m.mon+6,target=m.wk*(we-ws+1)/7,prog=Ld<ws?0:Math.min(1,(Ld-ws+1)/(we-ws+1));
-    return{name:"Semaine",title:`Semaine du ${dm(m.mon)}`,used:m.wUsed,target,theo:target*prog}}
-  if(sc==="m")return{name:"Mois",title:`${MO[td.getUTCMonth()]} ${td.getUTCFullYear()}`,used:m.used,target:m.quota,theo:m.theoUsed};
-  if(sc==="y"){const ya=m.start+Math.round(m.yi*365.25),ye=m.start+Math.round((m.yi+1)*365.25),prog=Math.min(1,Math.max(0,(m.last.d-ya)/(ye-ya)));
-    return{name:"Année "+(m.yi+1),title:`Année ${m.yi+1} du contrat`,used:m.yearKm,target:st.limit,theo:st.limit*prog}}
-  return{name:"Contrat",title:`Contrat ${f(st.months/12,0)} ans`,used:m.driven,target:m.cap,theo:m.theoL};
+  const st=m.st,Ld=m.L,td=dt(m.today),ud=m.ud;
+  if(sc==="w"){const ws=Math.max(m.mon,m.start),we=m.mon+6,u=ud(ws,we),target=m.kmDay*u,theo=Ld<ws?0:m.kmDay*ud(ws,Ld);
+    return{name:"Semaine",title:`Semaine du ${dm(m.mon)}`,used:m.wUsed,target,theo,
+      rule:`${f(m.kmDay,m.kmDay%1?1:0)} km par jour d'usage, du lundi au ${JOURS[st.dw%7]}. ${u<st.dw?`Cette semaine compte ${u} jour${u>1?"s":""} d'usage (contrat démarré le ${dm(m.start)}).`:`Soit ${f(m.wk)} km pour la semaine.`}`}}
+  if(sc==="m")return{name:"Mois",title:`${MO[td.getUTCMonth()]} ${td.getUTCFullYear()}`,used:m.used,target:m.quota,theo:m.theoUsed,
+      rule:`${f(m.kmDay,m.kmDay%1?1:0)} km par jour d'usage, du lundi au ${JOURS[st.dw%7]}, dans la limite de ${f(m.quota)} km.${m.quota<m.mq-.5?` Objectif réduit ce mois-ci (contrat démarré le ${dm(m.start)}) au lieu de ${f(m.mq)} km.`:""}`};
+  if(sc==="y"){const ya=m.start+Math.round(m.yi*365.25),ye=m.start+Math.round((m.yi+1)*365.25),u=Math.max(1,ud(ya,ye-1));
+    return{name:"Année "+(m.yi+1),title:`Année ${m.yi+1} du contrat`,used:m.yearKm,target:st.limit,theo:Math.min(st.limit,m.kmDay*ud(ya,m.last.d)),
+      rule:`${f(m.kmDay,m.kmDay%1?1:0)} km par jour d'usage, du lundi au ${JOURS[st.dw%7]}, dans la limite de ${f(st.limit)} km. ${st.dy} jours d'usage par an : les autres jours servent de marge.`}}
+  return{name:"Contrat",title:`Contrat ${f(st.months/12,0)} ans`,used:m.driven,target:m.cap,theo:m.theoL,
+      rule:`${f(m.kmDay,m.kmDay%1?1:0)} km par jour d'usage, dans la limite de ${f(m.cap)} km sur ${st.months} mois. ${m.proj==null?"Projection disponible après deux semaines.":`À ce rythme : ${f(m.proj)} km en fin de contrat (${dm(m.end)} ${dt(m.end).getUTCFullYear()}).`}`};
 }
 function ringHero(m,r0){
   const cx=80,cy=80,r=64,w=16,T=Math.max(1,r0.target),drv=Math.min(Math.max(0,r0.used),T);
@@ -211,59 +219,43 @@ function reminder(m){
   return"";
 }
 const backupAge=m=>m.today-(S.lastExport?n(S.lastExport):m.start);
-function vBilan(m){
+const OKEY="inster-ordre-bilan",ORDER0=["ring","avg","km","conso","pie","amps","eco","kwh"];
+const getOrder=()=>{let o;try{o=JSON.parse(localStorage.getItem(OKEY))}catch(e){}o=Array.isArray(o)?o.filter(k=>ORDER0.includes(k)):[];return[...o,...ORDER0.filter(k=>!o.includes(k))]};
+function vRing(m){
   const rg=ringData(m,scale),rm=rg.theo-rg.used;
-  const pctR=Math.min(100,m.driven/m.cap*100),pctT=Math.min(100,m.theoL/m.cap*100),marge=m.theoL-m.driven;
-  const remR=m.quota-m.used,remT=m.quota-m.theoUsed,gap=remR-remT;
-  const pm=Math.min(100,m.used/m.quota*100),pmT=Math.min(100,m.theoUsed/m.quota*100);
-  const projTxt=m.proj==null?"Projection disponible après deux semaines":`À ce rythme : ${f(m.proj)} km en fin de contrat`;
-  const mo=m.months;
-  const t=m.today,td=dt(t);
+  return`<section class="card hero">
+    <div class="lv"><span class="tag" style="color:inherit">Compteur ${f(m.last.o)} km</span><span class="small muted">relevé du ${dm(m.last.d)}</span></div>
+    ${ringHero(m,rg)}
+    <div class="rhead"><h2>${rg.title}</h2><span class="pill ${rm>=0?"good":"warn"}">${rm>=0?"✓ Marge de":"! En avance de"} ${f(Math.abs(rm))} km</span></div>
+    <div class="rgrid">
+      <div><span class="muted">Roulé</span><strong>${f(rg.used)} km</strong></div>
+      <div><span class="muted">Objectif</span><strong>${f(rg.target)} km</strong></div>
+      <div><span class="muted">Théorique au ${dm(m.L)}</span><strong>${f(rg.theo)} km</strong></div>
+      <div><span class="muted">Reste</span><strong>${f(Math.max(0,rg.target-rg.used))} km</strong></div>
+    </div>
+    <p class="small muted">${rg.rule}</p>
+  </section>`;
+}
+function vAvg(m){
+  return`<section class="card"><h2>Moyennes depuis le début</h2><div class="tiles">
+    <div class="tile"><span class="small muted">Côté prise</span><strong>${m.K&&m.driven?f(m.K/m.driven*100,1):"–"}</strong><span class="small muted">kWh/100 km</span></div>
+    <div class="tile"><span class="small muted">Côté voiture</span><strong>${m.carAvg?f(m.carAvg,1):"–"}</strong><span class="small muted">kWh/100 km</span></div>
+    <div class="tile"><span class="small muted">Coût</span><strong>${m.K&&m.driven?f(m.E/m.driven*100,2):"–"} €</strong><span class="small muted">/100 km</span></div>
+    <div class="tile"><span class="small muted">Rendement charge</span><strong>${m.rendG!=null?f(m.rendG*100,0)+" %":m.carAvg&&m.K&&m.carAvg<=m.K/m.driven*100?f(m.carAvg/(m.K/m.driven*100)*100,0)+" %":"–"}</strong><span class="small muted">${f(m.K,0)} kWh · ${f(m.E,0)} €</span></div>
+  </div></section>`;
+}
+function vKwh(){
+  return`<section class="card"><h2>kWh/100 km par mois</h2><div class="chart" id="cK"></div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Prise (écran du chargeur)</span><span><i style="background:var(--s2)"></i>Voiture (% batterie)</span></div></section>`;
+}
+function vBilan(m){
+  const C={ring:vRing,avg:vAvg,km:vKm,conso:vConso,pie:vPie,amps:vAmps,eco:vEco,kwh:vKwh};
   return`
   ${!m.odoList.length?`<div class="card"><h2>Bienvenue</h2><p class="small">Indique le compteur et le % de batterie à la livraison dans Réglages, puis note le compteur et le % avant/après à chaque recharge.</p><div class="row"><button class="btn small" data-tab="regl">Ouvrir les réglages</button></div></div>`:""}
   ${(()=>{const d=getDraft();return d?`<div class="card"><span><span class="pill good">Recharge en cours</span></span><p class="small">Commencée${d.cSocA?" à "+d.cSocA+" %":""}${d.cOdo?", compteur "+d.cOdo+" km":""}. Complète-la au débranchement.</p><div><button class="btn small" data-go="charge">Terminer la saisie</button></div></div>`:""})()}
   ${reminder(m)?`<div>${reminder(m)}</div>`:""}
   ${backupAge(m)>30&&(m.odoList.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
-  <div class="grid two">
-   <section class="card hero">
-    <div class="lv small"><span class="tag" style="color:inherit">Compteur ${f(m.last.o)} km</span><span class="muted">relevé du ${dm(m.last.d)}</span></div>
-    <div class="heroRow">
-     ${ringHero(m,rg)}
-     <div class="heroTxt">
-      <strong class="rtitle">${rg.title}</strong>
-      <span class="pill ${rm>=0?"good":"warn"}">${rm>=0?"✓ Marge":"! En avance de"} ${f(Math.abs(rm))} km</span>
-      <p class="small">${f(rg.used)} / ${f(rg.target)} km</p>
-      <p class="small muted">Trait : ${f(rg.theo)} km théoriques au ${dm(m.L)}</p>
-      ${scale==="t"?`<p class="small muted">${projTxt}. Fin : ${dm(m.end)} ${dt(m.end).getUTCFullYear()}.</p>`:`<p class="small muted">Reste ${f(Math.max(0,rg.target-rg.used))} km sur la période.</p>`}
-     </div>
-    </div>
-    <p class="small muted">Touche l'anneau : semaine, mois, année, contrat.</p>
-   </section>
-   <section class="card">
-    <div class="lv"><h2>${MO[td.getUTCMonth()]} ${td.getUTCFullYear()}</h2><span class="pill ${gap>=0?"good":"warn"}">${gap>=0?"✓ +":"! −"}${f(Math.abs(gap))} km</span></div>
-    <div class="pair">
-      <div><span class="small muted">Km restants</span><div class="big">${f(remR)}</div></div>
-      <div><span class="small muted">Théorique</span><div class="big">${f(remT)}</div></div>
-    </div>
-    <div class="meter"><i style="width:${pm}%"></i><b style="left:${pmT}%"></b></div>
-    <p class="small muted">${f(m.used)} km roulés sur ${f(m.quota)} km du mois, arrêtés au ${dm(m.L)} · Le trait marque la position théorique.</p>
-   </section>
-  </div>
-  <section class="tiles" aria-label="Moyennes depuis le début">
-    <div class="tile"><span class="small muted">Côté prise</span><strong>${m.K&&m.driven?f(m.K/m.driven*100,1):"–"}</strong><span class="small muted">kWh/100 km</span></div>
-    <div class="tile"><span class="small muted">Côté voiture</span><strong>${m.carAvg?f(m.carAvg,1):"–"}</strong><span class="small muted">kWh/100 km</span></div>
-    <div class="tile"><span class="small muted">Coût</span><strong>${m.K&&m.driven?f(m.E/m.driven*100,2):"–"} €</strong><span class="small muted">/100 km</span></div>
-    <div class="tile"><span class="small muted">Rendement charge</span><strong>${m.rendG!=null?f(m.rendG*100,0)+" %":m.carAvg&&m.K&&m.carAvg<=m.K/m.driven*100?f(m.carAvg/(m.K/m.driven*100)*100,0)+" %":"–"}</strong><span class="small muted">${f(m.K,0)} kWh · ${f(m.E,0)} €</span></div>
-  </section>
-  <div class="grid two">${vAmps(m)}${vPie(m)}</div>
-  ${vConso(m)}
-  ${vKm(m)}
-  <div class="grid two">
-   <section class="card"><h2>kWh/100 km par mois</h2><div class="chart" id="cK"></div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>Prise (écran du chargeur)</span><span><i style="background:var(--s2)"></i>Voiture (% batterie)</span></div></section>
-   ${vEco(m)}
-  </div>
-  `;
+  <div class="cards" id="cards">${getOrder().map(k=>`<div class="dz" data-card="${k}"><button class="grip" aria-label="Déplacer ce bloc" title="Glisser pour déplacer"><i></i></button>${C[k](m)}</div>`).join("")}</div>`;
 }
 function vAmps(m){
   const dom=m.byAmps.filter(g=>g.a!==999),mx=Math.max(...dom.map(g=>g.eb/g.kwh));
@@ -306,7 +298,7 @@ function vEco(m){
 }
 function vKm(m){
   const st=m.st,td=dt(m.today),sc=scale;
-  const tabs=[["w","Semaine",m.wk,`cette semaine : ${f(m.wUsed)} km`],["m","Mois",m.mq,`${MO[td.getUTCMonth()]} : ${f(m.used)} km`],["y","Année",st.limit,`année ${m.yi+1} : ${f(m.yearKm)} km`],["t",f(st.months/12,0)+" ans",m.cap,`${f(m.driven)} km roulés`]];
+  const tabs=SCALES.map(k=>{const r=ringData(m,k);return[k,k==="t"?f(st.months/12,0)+" ans":r.name,r.target,`roulé : ${f(r.used)} km`]});
   const cap={w:`${st.dw} jours × ${f(m.kmDay,m.kmDay%1?1:0)} km = ${f(m.wk)} km par semaine d'usage.`,m:`${f(st.dy/12,0)} jours d'usage par mois (${st.dy} ÷ 12) × ${f(m.kmDay,m.kmDay%1?1:0)} km = ${f(m.mq)} km.`,y:`${st.dy} jours d'usage × ${f(m.kmDay,m.kmDay%1?1:0)} km = ${f(st.limit)} km par année de contrat.`,t:`${st.months} mois : ${f(m.cap)} km. La projection prolonge le rythme moyen observé.`}[sc];
   const leg=sc==="t"?`<span><i style="background:var(--s1)"></i>Réel</span><span><i style="background:var(--s2)"></i>Théorique</span><span><i style="background:var(--muted)"></i>Projection</span>`
     :`<span><i style="background:var(--s1)"></i>Dans l'objectif</span><span><i style="background:var(--s2)"></i>Au-dessus de l'objectif</span>`;
@@ -318,21 +310,21 @@ function vKm(m){
     <p class="small muted">${cap}</p></section>`;
 }
 function totalSeries(m){
-  const st=m.st,L=[],real=[],theo=[],proj=[],rate=m.proj!=null?m.driven/m.elapsedL:null;let li=-1;
+  const st=m.st,L=[],real=[],theo=[],proj=[],rate=m.proj!=null&&m.udL?m.driven/m.udL:null;let li=-1;
   const days=[];for(let d=m.start;d<=m.end;d+=7)days.push(d);
   if(!days.includes(m.end))days.push(m.end);
   if(m.odoList.length&&!days.includes(m.last.d)){days.push(m.last.d);days.sort((a,b)=>a-b)}
   for(let i=0;i<days.length;i++){
     const d=days[i],x=dt(d);L.push(MO[x.getUTCMonth()]+" "+String(x.getUTCFullYear()).slice(2));
     real.push(d<=m.last.d?m.odoAt(d)-st.odo0:null);if(d<=m.last.d)li=i;
-    theo.push(m.cap*(d-m.start)/m.total);
-    proj.push(rate!=null&&d>m.last.d?m.driven+rate*(d-m.last.d):null)}
+    theo.push(Math.min(m.cap,m.kmDay*m.ud(m.start,d)));
+    proj.push(rate!=null&&d>m.last.d?m.driven+rate*m.ud(m.last.d+1,Math.min(d,m.end-1)):null)}
   if(rate!=null&&li>=0)proj[li]=real[li];
   return{L,real,theo,proj};
 }
 function drawCharts(m){
   if(scale==="w"){const w=range?m.weeks.slice(-range):m.weeks;
-    bars($("#cW"),{items:w.map(x=>({v:x.km,label:dm(x.d).replace(/\.$/,""),hi:x.km>m.wk,tip:`<strong>Semaine du ${dm(x.d-6)}</strong><br>${f(x.km)} km`})),target:m.wk,targetLabel:`Objectif ${f(m.wk)} km`,aria:"Kilomètres par semaine",empty:"Le graphique apparaît après le premier relevé."})}
+    bars($("#cW"),{items:w.map(x=>({v:x.km,label:dm(x.d).replace(/\.$/,""),hi:x.km>m.wk,tip:`<strong>Semaine du ${dm(x.d-6)}</strong><br>${f(x.km)} km${x.partial?" (en cours)":""}`})),target:m.wk,targetLabel:`Objectif ${f(m.wk)} km`,aria:"Kilomètres par semaine",empty:"Le graphique apparaît après le premier relevé."})}
   else if(scale==="m"){
     bars($("#cW"),{items:m.months.map(x=>({v:x.km,label:x.label,hi:x.km>m.mq,tip:`<strong>${x.label} ${x.y}</strong><br>${f(x.km)} km`})),target:m.mq,targetLabel:`Objectif ${f(m.mq)} km`,aria:"Kilomètres par mois",empty:"Le graphique apparaît après le premier relevé."})}
   else if(scale==="y"){const yrs=[];
@@ -519,6 +511,16 @@ $("#view").addEventListener("submit",e=>{
     S.readings.push({id:uid(),date,odo:o,conso:null});save();$("#rOdo").value="";render();toast("Relevé enregistré");
   }
 });
+let drag=null;
+$("#view").addEventListener("pointerdown",e=>{const g=e.target.closest(".grip");if(!g)return;e.preventDefault();drag={it:g.closest(".dz"),id:e.pointerId};drag.it.classList.add("dragging")});
+document.addEventListener("pointermove",e=>{if(!drag||e.pointerId!==drag.id)return;e.preventDefault();
+  const box=drag.it.parentElement;let before=null;
+  for(const x of box.children){if(x===drag.it)continue;const r=x.getBoundingClientRect();if(e.clientY<r.top+r.height/2){before=x;break}}
+  if(drag.it.nextElementSibling!==before&&!(before===null&&box.lastElementChild===drag.it))box.insertBefore(drag.it,before);
+  if(e.clientY<70)scrollBy(0,-14);else if(e.clientY>innerHeight-120)scrollBy(0,14)},{passive:false});
+const dragEnd=e=>{if(!drag||e.pointerId!==drag.id)return;drag.it.classList.remove("dragging");
+  try{localStorage.setItem(OKEY,JSON.stringify([...$("#cards").children].map(x=>x.dataset.card)))}catch(x){}drag=null};
+document.addEventListener("pointerup",dragEnd);document.addEventListener("pointercancel",dragEnd);
 let rt;addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(()=>{if(tab==="bilan")drawCharts(model())},150)});
 render();
 let shownDay=localToday();
