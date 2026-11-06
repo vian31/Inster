@@ -11,9 +11,10 @@ const uid=()=>Math.random().toString(36).slice(2,9);
 const KEY="inster-compteur-v1";
 const localToday=()=>{const x=new Date();return Date.UTC(x.getFullYear(),x.getMonth(),x.getDate())/DAY};
 
-function fresh(){return{set:{start:"2026-11-05",months:36,limit:15000,odo0:0,tarif:"base",prices:{base:.2001,hp:.2142,hc:.1589},diesel:{conso:7.5,prices:[{from:"2026-11-05",price:2.385}]}},readings:[],charges:[]}}
+function fresh(){return{set:{start:"2026-11-05",months:36,limit:15000,odo0:0,tarif:"base",prices:{base:.2001,hp:.2142,hc:.1589},diesel:{conso:7.5,prices:[{from:"2026-11-05",price:2.385}]},cap:42,soc0:null},readings:[],charges:[]}}
 let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.set)S=fresh();
+if(!(S.set.cap>0))S.set.cap=42;if(S.set.soc0===undefined)S.set.soc0=null;
 const dieselAt=d=>{const P=S.set.diesel.prices;let p=P[0].price;for(const x of P)if(n(x.from)<=d)p=x.price;return p*S.set.diesel.conso};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
 let tab="bilan",range=13,formKind="charge";
@@ -24,19 +25,35 @@ function model(){
   const end=(()=>{const x=dt(start);return Date.UTC(x.getUTCFullYear(),x.getUTCMonth()+ +st.months,x.getUTCDate())/DAY})();
   const vis=r=>n(r.date)<=today;
   const reads=S.readings.filter(vis).sort((a,b)=>a.date<b.date?-1:1);
-  const chs=S.charges.filter(vis).sort((a,b)=>a.date<b.date?-1:1);
-  const pts=[{d:start,o:+st.odo0},...reads.map(r=>({d:n(r.date),o:r.odo}))];
+  const chs=S.charges.filter(vis).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:(a.odo||0)-(b.odo||0));
+  /* compteur : relevés + recharges où le compteur est noté */
+  const byDay={};[...reads.map(r=>r),...chs.filter(c=>c.odo!=null)].forEach(x=>{byDay[x.date]=Math.max(byDay[x.date]??0,x.odo)});
+  const odoList=Object.keys(byDay).sort().map(k=>({date:k,odo:byDay[k]}));
+  const pts=[{d:start,o:+st.odo0},...odoList.map(r=>({d:n(r.date),o:r.odo}))];
   const odoAt=d=>{if(d<=pts[0].d)return pts[0].o;for(let i=1;i<pts.length;i++)if(d<=pts[i].d){const a=pts[i-1],b=pts[i];return a.o+(b.o-a.o)*(d-a.d)/Math.max(1,b.d-a.d)}return pts[pts.length-1].o};
   const last=pts[pts.length-1];
   const cap=st.limit*st.months/12,total=end-start,wk=st.limit/52,mq=st.limit/12;
   const driven=last.o-st.odo0;
   const elapsedL=Math.max(1,last.d-start);
   const theoL=cap*elapsedL/total;
-  const proj=reads.length&&elapsedL>=14?driven/elapsedL*total:null;
+  const proj=odoList.length&&elapsedL>=14?driven/elapsedL*total:null;
   /* semaines lun-dim */
   const weeks=[];
   let sun=start+((7-dt(start).getUTCDay())%7);
-  for(;sun<=last.d&&reads.length;sun+=7){weeks.push({d:sun,km:odoAt(sun)-odoAt(sun-7)})}
+  for(;sun<=last.d&&odoList.length;sun+=7){weeks.push({d:sun,km:odoAt(sun)-odoAt(sun-7)})}
+  /* énergie batterie (% × capacité) */
+  const bcap=+st.cap||42;
+  const soc=chs.filter(c=>c.socA!=null&&c.socB!=null&&c.socB>c.socA).map(c=>({...c,eb:(c.socB-c.socA)/100*bcap,r:(c.socB-c.socA)/100*bcap/c.kwh}));
+  const ampsMap={};soc.forEach(c=>{const k=c.place==="ext"?"Borne":c.amps+" A";const g=ampsMap[k]||(ampsMap[k]={k,a:c.place==="ext"?999:c.amps,nb:0,kwh:0,eb:0,last:null});g.nb++;g.kwh+=c.kwh;g.eb+=c.eb;g.last=c.r});
+  const byAmps=Object.values(ampsMap).sort((x,y)=>x.a-y.a);
+  const Kb=soc.reduce((s,c)=>s+c.kwh,0),Eb=soc.reduce((s,c)=>s+c.eb,0),rendG=Kb?Eb/Kb:null;
+  /* conso voiture entre deux recharges : fin de l'une -> début de la suivante */
+  const segs=[];let prevEnd=st.soc0!=null?{soc:+st.soc0,odo:+st.odo0,date:st.start}:null;
+  chs.forEach(c=>{
+    if(prevEnd&&c.socA!=null&&c.odo!=null){const km=c.odo-prevEnd.odo,e=(prevEnd.soc-c.socA)/100*bcap;
+      if(km>=15&&e>0)segs.push({date:c.date,from:prevEnd.date,km,e,c:e/km*100})}
+    prevEnd=c.socB!=null&&c.odo!=null?{soc:c.socB,odo:c.odo,date:c.date}:null});
+  const segKm=segs.reduce((s,x)=>s+x.km,0),segAvg=segKm?segs.reduce((s,x)=>s+x.e,0)/segKm*100:null;
   /* cumul */
   const cumul=weeks.map(w=>({d:w.d,real:odoAt(w.d)-st.odo0,theo:cap*(w.d-start)/total}));
   /* mois */
@@ -47,7 +64,7 @@ function model(){
     const km=odoAt(b)-odoAt(a-1);
     const cs=chs.filter(c=>{const d=n(c.date);return d>=a&&d<=b&&d<=last.d});
     const kwh=cs.reduce((s,c)=>s+c.kwh,0),cost=cs.reduce((s,c)=>s+c.kwh*c.price,0);
-    let wc=0,wk2=0;reads.forEach((r,i)=>{const d=n(r.date);if(d>=a&&d<=b&&r.conso){const k=r.odo-(i?reads[i-1].odo:st.odo0);wc+=r.conso*k;wk2+=k}});
+    let wc=0,wk2=0;segs.forEach(x=>{const d=n(x.date);if(d>=a&&d<=b){wc+=x.e*100;wk2+=x.km}});if(!wk2)reads.forEach((r,i)=>{const d=n(r.date);if(d>=a&&d<=b&&r.conso){const k=r.odo-(i?reads[i-1].odo:st.odo0);wc+=r.conso*k;wk2+=k}});
     let dcost=0;for(let d=a;d<=b;d++){const k=odoAt(d)-odoAt(d-1);if(k>0)dcost+=k*dieselAt(d)/100}
     months.push({dcost,ref:km>=50?dcost/km*100:null,label:MO[m],y,km,kwh,cost,prise:km>=50&&kwh?kwh/km*100:null,euro:km>=50&&kwh?cost/km*100:null,car:wk2?wc/wk2:null});
     m++;if(m>11){m=0;y++}
@@ -64,15 +81,15 @@ function model(){
   /* totaux */
   const cl=chs.filter(c=>n(c.date)<=last.d),K=cl.reduce((s,c)=>s+c.kwh,0),E=cl.reduce((s,c)=>s+c.kwh*c.price,0);
   const withC=reads.map((r,i)=>({k:r.odo-(i?reads[i-1].odo:st.odo0),c:r.conso})).filter(x=>x.c);
-  const carAvg=withC.length?withC.reduce((s,x)=>s+x.k*x.c,0)/withC.reduce((s,x)=>s+x.k,0):null;
+  const carAvg=segAvg!=null?segAvg:withC.length?withC.reduce((s,x)=>s+x.k*x.c,0)/withC.reduce((s,x)=>s+x.k,0):null;
   /* rappel */
   const dow=td.getUTCDay(),mon=today-((dow+6)%7);
-  const has=reads.some(r=>n(r.date)>=mon);
+  const has=odoList.some(r=>n(r.date)>=mon);
   const firstSun=start+((7-dt(start).getUTCDay())%7);
   const notif=dow===0&&!has;
-  const late=!notif&&today>firstSun&&!reads.some(r=>n(r.date)>=mon-7);
+  const late=!notif&&today>firstSun&&!odoList.some(r=>n(r.date)>=mon-7);
   const dieselTotal=months.reduce((x,o)=>x+o.dcost,0);
-  return{dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
+  return{odoList,byAmps,rendG,Kb,Eb,segs,segAvg,bcap,dieselTotal,st,start,today,end,reads,chs,odoAt,last,cap,total,wk,mq,driven,theoL,proj,weeks,cumul,months,quota,used,theoUsed,prog,L,yi,yearKm,K,E,carAvg,notif,late,mon,elapsedL};
 }
 
 /* ---- Graphiques ---- */
@@ -154,9 +171,9 @@ function vBilan(m){
   const mo=m.months;
   const t=m.today,td=dt(t);
   return`
-  ${!m.reads.length?`<div class="card"><h2>Bienvenue</h2><p class="small">Indique le kilométrage à la livraison dans Réglages, puis fais ton premier relevé dimanche.</p><div class="row"><button class="btn small" data-tab="regl">Ouvrir les réglages</button></div></div>`:""}
+  ${!m.odoList.length?`<div class="card"><h2>Bienvenue</h2><p class="small">Indique le compteur et le % de batterie à la livraison dans Réglages, puis note le compteur et le % avant/après à chaque recharge.</p><div class="row"><button class="btn small" data-tab="regl">Ouvrir les réglages</button></div></div>`:""}
   ${reminder(m)?`<div>${reminder(m)}</div>`:""}
-  ${backupAge(m)>30&&(m.reads.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
+  ${backupAge(m)>30&&(m.odoList.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
   <div class="grid two">
    <section class="card hero">
     <div class="lv"><span class="tag" style="color:inherit">Compteur</span><span class="small muted">relevé du ${dm(m.last.d)}</span></div>
@@ -180,8 +197,17 @@ function vBilan(m){
     <div class="tile"><span class="small muted">Côté prise</span><strong>${m.K&&m.driven?f(m.K/m.driven*100,1):"–"}</strong><span class="small muted">kWh/100 km</span></div>
     <div class="tile"><span class="small muted">Côté voiture</span><strong>${m.carAvg?f(m.carAvg,1):"–"}</strong><span class="small muted">kWh/100 km</span></div>
     <div class="tile"><span class="small muted">Coût</span><strong>${m.K&&m.driven?f(m.E/m.driven*100,2):"–"} €</strong><span class="small muted">/100 km</span></div>
-    <div class="tile"><span class="small muted">Rendement charge</span><strong>${m.carAvg&&m.K&&m.carAvg<=m.K/m.driven*100?f(m.carAvg/(m.K/m.driven*100)*100,0)+" %":"–"}</strong><span class="small muted">${f(m.K,0)} kWh · ${f(m.E,0)} €</span></div>
+    <div class="tile"><span class="small muted">Rendement charge</span><strong>${m.rendG!=null?f(m.rendG*100,0)+" %":m.carAvg&&m.K&&m.carAvg<=m.K/m.driven*100?f(m.carAvg/(m.K/m.driven*100)*100,0)+" %":"–"}</strong><span class="small muted">${f(m.K,0)} kWh · ${f(m.E,0)} €</span></div>
   </section>
+  <section class="card"><h2>Rendement par réglage</h2>
+    ${m.byAmps.length?`<div class="list">${m.byAmps.map(g=>`<div class="item"><div><strong>${g.k}</strong><br><span class="small muted">${g.nb} recharge${g.nb>1?"s":""} · ${f(g.kwh,1)} kWh prise → ${f(g.eb,1)} kWh batterie</span></div><strong class="big" style="white-space:nowrap">${f(g.eb/g.kwh*100,0)} %</strong></div>`).join("")}</div>
+    <p class="small muted">Énergie entrée dans la batterie (écart de % × ${f(m.bcap,1)} kWh) ÷ kWh lus sur le chargeur. Le % de la voiture est arrondi à l'unité : fiable sur des recharges de 30 % et plus, et de plus en plus précis avec le cumul. La capacité réglée décale tous les rendements d'autant, la comparaison entre ampérages reste juste.</p>`
+    :`<p class="small muted">Note le % de batterie avant et après chaque recharge : le rendement de chaque ampérage s'affiche ici.</p>`}</section>
+  <section class="card"><h2>Conso voiture entre deux recharges</h2>
+    <div class="pair"><div><span class="small muted">Moyenne</span><div class="big">${m.segAvg!=null?f(m.segAvg,1):"–"}</div><span class="small muted">kWh/100 km</span></div><div><span class="small muted">Dernière période</span><div class="big">${m.segs.length?f(m.segs[m.segs.length-1].c,1):"–"}</div><span class="small muted">${m.segs.length?f(m.segs[m.segs.length-1].km)+" km":"kWh/100 km"}</span></div></div>
+    <div class="chart" id="cS"></div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Chaque période</span><span><i style="background:var(--s2)"></i>Moyenne glissante sur 5</span></div>
+    <p class="small muted">Écart de % entre la fin d'une recharge et le début de la suivante, ramené aux km du compteur. Inclut chauffage et veille.</p></section>
   <section class="card">
     <div class="head"><h2>Km par semaine</h2><div class="seg" role="group" aria-label="Période">
       ${[[13,"3 mois"],[26,"6 mois"],[0,"Tout"]].map(([v,l])=>`<button data-range="${v}" aria-pressed="${range===v}">${l}</button>`).join("")}</div></div>
@@ -190,7 +216,7 @@ function vBilan(m){
   </section>
   <div class="grid two">
    <section class="card"><h2>kWh/100 km par mois</h2><div class="chart" id="cK"></div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>Prise (écran du chargeur)</span><span><i style="background:var(--s2)"></i>Voiture (myHyundai)</span></div></section>
+    <div class="legend"><span><i style="background:var(--s1)"></i>Prise (écran du chargeur)</span><span><i style="background:var(--s2)"></i>Voiture (% batterie)</span></div></section>
    <section class="card"><h2>€/100 km par mois</h2><div class="pair"><div><span class="small muted">Diesel ${f(m.st.diesel.conso,1)} L/100</span><div class="big">${f(dieselAt(m.today),2)} €</div><span class="small muted">/100 km</span></div><div><span class="small muted">Économie depuis le début</span><div class="big">${m.K&&m.driven?f(m.dieselTotal-m.E,0)+" €":"–"}</div><span class="small muted">sur ${f(m.driven)} km</span></div></div><div class="chart" id="cE"></div>
     <p class="small muted">Énergie et carburant seuls, selon l'historique du prix du gazole. Abonnement et entretien non comptés.</p></section>
   </div>
@@ -200,6 +226,8 @@ function vBilan(m){
 function drawCharts(m){
   const w=range?m.weeks.slice(-range):m.weeks;
   bars($("#cW"),{items:w.map(x=>({v:x.km,label:dm(x.d).replace(/\.$/,""),hi:x.km>m.wk,tip:`<strong>Semaine du ${dm(x.d-6)}</strong><br>${f(x.km)} km`})),target:m.wk,targetLabel:`Objectif ${f(m.wk)} km`,aria:"Kilomètres par semaine",empty:"Le graphique apparaît après le premier relevé."});
+  const sg=m.segs,ma=sg.map((_,i)=>{const w=sg.slice(Math.max(0,i-4),i+1);return w.reduce((s,x)=>s+x.e,0)/w.reduce((s,x)=>s+x.km,0)*100});
+  lines($("#cS"),{labels:sg.map(x=>dm(n(x.date))),dots:true,dec:1,series:[{name:"Période",c:"var(--s1)",v:sg.map(x=>x.c)},{name:"Moyenne",c:"var(--s2)",dash:true,v:ma}],aria:"Consommation entre deux recharges en kilowattheures pour 100 km",empty:"Il faut au moins deux périodes entre recharges."});
   const mo=m.months;
   lines($("#cK"),{labels:mo.map(x=>x.label),dots:true,dec:1,series:[{name:"Prise",c:"var(--s1)",v:mo.map(x=>x.prise)},{name:"Voiture",c:"var(--s2)",v:mo.map(x=>x.car)}],aria:"Consommation mensuelle en kilowattheures pour 100 km",empty:"Il faut au moins deux mois de données."});
   const me=mo.filter(x=>x.euro!=null);
@@ -209,9 +237,12 @@ function drawCharts(m){
 function vSaisir(m){
   const today=iso(m.today),p=m.st.prices[m.st.tarif];
   const charge=`<form id="fC" class="card" novalidate><h2>Recharge</h2>
-    <p class="small muted">Lis les kWh sur l'écran du chargeur Dé avant de le débrancher.</p>
+    <p class="small muted">Au branchement : compteur et % batterie (appli myHyundai). Au débranchement : % batterie et kWh de l'écran du chargeur Dé.</p>
     <div class="pair"><label>Date<input type="date" id="cDate" value="${today}"></label>
-    <label>kWh côté prise<input id="cKwh" inputmode="decimal" placeholder="18,4"></label></div>
+    <label>Compteur (km)<input id="cOdo" inputmode="numeric" placeholder="${f(Math.round(m.last.o))}"></label></div>
+    <div class="pair"><label>Batterie avant (%)<input id="cSocA" inputmode="numeric" placeholder="35"></label>
+    <label>Batterie après (%)<input id="cSocB" inputmode="numeric" placeholder="80"></label></div>
+    <label>kWh côté prise<input id="cKwh" inputmode="decimal" placeholder="18,4"></label>
     <div class="pair"><label>Lieu<select id="cPlace"><option value="dom">Domicile</option><option value="ext">Borne extérieure</option></select></label>
     <label>Courant réglé<select id="cAmps"><option>6</option><option selected>8</option><option>10</option><option>13</option><option>16</option></select></label></div>
     <label>Prix du kWh (€)<input id="cPrice" inputmode="decimal" value="${f(p,4)}"></label>
@@ -232,7 +263,7 @@ function vHisto(m){
   const a=[...m.reads.map(r=>({...r,t:"r"})),...m.chs.map(c=>({...c,t:"c"}))].sort((x,y)=>x.date<y.date?1:x.date>y.date?-1:0);
   const rows=a.slice(0,40).map(e=>{
     const line=e.t==="r"?`<strong>Relevé ${f(e.odo)} km</strong><br><span class="small muted">${e.conso?f(e.conso,1)+" kWh/100 km voiture":"Conso voiture non saisie"}</span>`
-      :`<strong>Recharge ${f(e.kwh,1)} kWh</strong><br><span class="small muted">${e.place==="dom"?"Domicile · "+e.amps+" A":"Borne extérieure"} · ${f(e.kwh*e.price,2)} €</span>`;
+      :`<strong>Recharge ${f(e.kwh,1)} kWh</strong><br><span class="small muted">${e.place==="dom"?"Domicile · "+e.amps+" A":"Borne extérieure"} · ${f(e.kwh*e.price,2)} €${e.odo!=null?" · "+f(e.odo)+" km":""}${e.socA!=null&&e.socB!=null?" · "+e.socA+" → "+e.socB+" %"+(e.socB>e.socA?" · rendement "+f((e.socB-e.socA)/100*m.bcap/e.kwh*100,0)+" %":""):""}</span>`;
     return`<div class="item"><div><span class="small muted">${dm(n(e.date))} ${dt(n(e.date)).getUTCFullYear()}</span><br>${line}</div><button class="btn ghost small" data-del="${e.t}:${e.id}">Supprimer</button></div>`}).join("");
   return`<section class="card"><h2>Historique</h2><div class="list">${rows||'<p class="muted">Aucune saisie pour le moment. Ajoute un relevé dans l\'onglet Saisir.</p>'}</div>${a.length>40?`<p class="small muted">Les ${f(a.length-40)} saisies plus anciennes sont masquées.</p>`:""}</section>`;
 }
@@ -245,6 +276,7 @@ function vRegl(m){
   return`<section class="card"><h2>Contrat</h2>
     <div class="pair"><label>Début<input type="date" id="sStart" value="${s.start}"></label><label>Durée (mois)<input id="sMonths" inputmode="numeric" value="${s.months}"></label></div>
     <div class="pair"><label>Limite km/an<input id="sLimit" inputmode="numeric" value="${s.limit}"></label><label>Compteur à la livraison<input id="sOdo" inputmode="numeric" value="${s.odo0}"></label></div>
+    <div class="pair"><label>Batterie à la livraison (%)<input id="sSoc0" inputmode="numeric" value="${s.soc0??""}" placeholder="98"></label><label>Capacité utile batterie (kWh)<input id="sCap" inputmode="decimal" value="${f(s.cap,1)}"></label></div>
     <p class="small muted">${f(s.limit/52,1)} km/semaine, ${f(s.limit/12)} km/mois, ${f(m.cap)} km au total.</p></section>
    <section class="card"><h2>Tarif Bleu EDF</h2>
     <label>Option utilisée pour les recharges à domicile<select id="sTarif">${[["base","Base"],["hc","Heures creuses"],["hp","Heures pleines"]].map(([v,l])=>`<option value="${v}" ${s.tarif===v?"selected":""}>${l}</option>`).join("")}</select></label>
@@ -290,10 +322,10 @@ function parseBackup(t){
   if(!o||o.app!=="inster-compteur"||!o.set||!Array.isArray(o.readings)||!Array.isArray(o.charges))throw new Error("Ce fichier ne vient pas d'Inster Compteur.");
   const D=/^\d{4}-\d{2}-\d{2}$/,ok=v=>typeof v==="number"&&isFinite(v)&&v>=0;
   const readings=o.readings.map(r=>{if(!D.test(r.date)||!ok(r.odo))throw new Error("Un relevé est invalide (date "+String(r.date).slice(0,10)+").");return{id:uid(),date:r.date,odo:r.odo,conso:ok(r.conso)?r.conso:null}});
-  const charges=o.charges.map(c=>{if(!D.test(c.date)||!ok(c.kwh)||!ok(c.price))throw new Error("Une recharge est invalide (date "+String(c.date).slice(0,10)+").");return{id:uid(),date:c.date,kwh:c.kwh,amps:ok(c.amps)?c.amps:0,place:c.place==="ext"?"ext":"dom",price:c.price}});
+  const charges=o.charges.map(c=>{if(!D.test(c.date)||!ok(c.kwh)||!ok(c.price))throw new Error("Une recharge est invalide (date "+String(c.date).slice(0,10)+").");const pc=v=>ok(v)&&v<=100?v:null;return{id:uid(),date:c.date,kwh:c.kwh,amps:ok(c.amps)?c.amps:0,place:c.place==="ext"?"ext":"dom",price:c.price,odo:ok(c.odo)?c.odo:null,socA:pc(c.socA),socB:pc(c.socB)}});
   const s=o.set,p=s.prices||{};
   if(!D.test(s.start)||!ok(s.months)||!ok(s.limit)||!ok(s.odo0))throw new Error("Les réglages du contrat sont invalides dans ce fichier.");
-  return{set:{start:s.start,months:s.months,limit:s.limit,odo0:s.odo0,tarif:["base","hc","hp"].includes(s.tarif)?s.tarif:"base",prices:{base:ok(p.base)?p.base:.2001,hc:ok(p.hc)?p.hc:.1589,hp:ok(p.hp)?p.hp:.2142},diesel:{conso:s.diesel&&ok(s.diesel.conso)?s.diesel.conso:7.5,prices:(()=>{const dd=s.diesel||{};const L=Array.isArray(dd.prices)?dd.prices.filter(x=>x&&D.test(x.from)&&ok(x.price)).map(x=>({from:x.from,price:x.price})).sort((x,y)=>x.from<y.from?-1:1):[];return L.length?L:[{from:s.start,price:ok(dd.price)?dd.price:2.385}]})()}},readings,charges,exportedAt:D.test(o.exportedAt)?o.exportedAt:null};
+  return{set:{start:s.start,months:s.months,limit:s.limit,odo0:s.odo0,tarif:["base","hc","hp"].includes(s.tarif)?s.tarif:"base",prices:{base:ok(p.base)?p.base:.2001,hc:ok(p.hc)?p.hc:.1589,hp:ok(p.hp)?p.hp:.2142},diesel:{conso:s.diesel&&ok(s.diesel.conso)?s.diesel.conso:7.5,prices:(()=>{const dd=s.diesel||{};const L=Array.isArray(dd.prices)?dd.prices.filter(x=>x&&D.test(x.from)&&ok(x.price)).map(x=>({from:x.from,price:x.price})).sort((x,y)=>x.from<y.from?-1:1):[];return L.length?L:[{from:s.start,price:ok(dd.price)?dd.price:2.385}]})()},cap:ok(s.cap)&&s.cap>0?s.cap:42,soc0:ok(s.soc0)&&s.soc0<=100?s.soc0:null},readings,charges,exportedAt:D.test(o.exportedAt)?o.exportedAt:null};
 }
 /* ---- Interactions ---- */
 $("#nav").addEventListener("click",e=>{if(e.target.dataset.t){tab=e.target.dataset.t;render();scrollTo(0,0)}});
@@ -324,7 +356,7 @@ $("#view").addEventListener("click",e=>{
     armed=null;S.set.diesel.prices=S.set.diesel.prices.filter(x=>x.from!==b.dataset.deld);save();render();toast("Prix supprimé")}
 });
 $("#view").addEventListener("input",e=>{
-  if(e.target.id==="cKwh"||e.target.id==="cPrice"){const k=num($("#cKwh").value),p=num($("#cPrice").value);if(k>0&&p>=0)$("#cPrev").textContent=`Coût de la recharge : ${f(k*p,2)} €`}
+  if(["cKwh","cPrice","cSocA","cSocB"].includes(e.target.id)){const k=num($("#cKwh").value),p=num($("#cPrice").value),sa=num($("#cSocA").value),sb=num($("#cSocB").value);if(k>0&&p>=0)$("#cPrev").textContent=`Coût de la recharge : ${f(k*p,2)} €`+(sb>sa?` · rendement ${f((sb-sa)/100*S.set.cap/k*100,0)} %`:"")}
   if(e.target.id==="rOdo"){const m=model(),o=num(e.target.value);if(o>m.last.o)$("#rPrev").textContent=`Soit ${f(o-m.last.o)} km depuis le ${dm(m.last.d)}.`}
 });
 $("#view").addEventListener("change",e=>{
@@ -333,7 +365,7 @@ $("#view").addEventListener("change",e=>{
     rd.onload=()=>{try{pending=parseBackup(rd.result);bt.textContent=`Restaurer ${pending.readings.length} relevés et ${pending.charges.length} recharges`;bt.hidden=false}catch(x){showErr("#ioErr",x.message)}};
     rd.onerror=()=>showErr("#ioErr","Ce fichier ne peut pas être lu. Choisis un autre fichier.");rd.readAsText(fl);return}
   if(id==="cPlace"){const p=$("#cPrice");p.value=v==="dom"?f(s.prices[s.tarif],4):"";$("#cAmps").disabled=v==="ext";if(v==="ext")p.focus();return}
-  const map={sStart:()=>s.start=v,sMonths:()=>s.months=Math.max(1,num(v)||36),sLimit:()=>s.limit=num(v)||15000,sOdo:()=>s.odo0=num(v)||0,sTarif:()=>s.tarif=v,pBase:()=>s.prices.base=num(v)||0,pHc:()=>s.prices.hc=num(v)||0,pHp:()=>s.prices.hp=num(v)||0,dConso:()=>s.diesel.conso=num(v)||0};
+  const map={sStart:()=>s.start=v,sMonths:()=>s.months=Math.max(1,num(v)||36),sLimit:()=>s.limit=num(v)||15000,sOdo:()=>s.odo0=num(v)||0,sTarif:()=>s.tarif=v,pBase:()=>s.prices.base=num(v)||0,pHc:()=>s.prices.hc=num(v)||0,pHp:()=>s.prices.hp=num(v)||0,dConso:()=>s.diesel.conso=num(v)||0,sCap:()=>s.cap=num(v)>0?num(v):42,sSoc0:()=>{const x=num(v);s.soc0=x>=0&&x<=100?x:null}};
   if(map[id]){map[id]();save();render()}
 });
 $("#view").addEventListener("submit",e=>{
@@ -343,7 +375,14 @@ $("#view").addEventListener("submit",e=>{
     if(!date||n(date)>m.today)return showErr("#cErr","Choisis une date qui n'est pas dans le futur.");
     if(!(k>0&&k<=60))return showErr("#cErr","Saisis l'énergie affichée par le chargeur, entre 0 et 60 kWh.");
     if(!(p>=0&&p<3))return showErr("#cErr","Saisis un prix du kWh en euros, par exemple 0,2001.");
-    S.charges.push({id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p});save();$("#cKwh").value="";render();toast("Recharge enregistrée");
+    const o=$("#cOdo").value.trim()?num($("#cOdo").value):null,sa=$("#cSocA").value.trim()?num($("#cSocA").value):null,sb=$("#cSocB").value.trim()?num($("#cSocB").value):null;
+    if(o!=null){if(!(o>=0))return showErr("#cErr","Saisis le total affiché au compteur.");
+      const d=n(date),pts=[...S.readings,...S.charges.filter(c=>c.odo!=null)],prev=Math.max(+S.set.odo0,...pts.filter(r=>n(r.date)<d).map(r=>r.odo)),nx=pts.filter(r=>n(r.date)>d).map(r=>r.odo);
+      if(o<prev)return showErr("#cErr",`Le compteur ne peut pas être inférieur à ${f(prev)} km à cette date.`);
+      if(nx.length&&o>Math.min(...nx))return showErr("#cErr",`Une saisie plus récente indique ${f(Math.min(...nx))} km.`)}
+    if((sa!=null)!==(sb!=null))return showErr("#cErr","Saisis le % avant et le % après, ou aucun des deux.");
+    if(sa!=null&&!(sa>=0&&sb<=100&&sb>sa))return showErr("#cErr","Le % après doit être plus grand que le % avant, entre 0 et 100.");
+    S.charges.push({id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p,odo:o,socA:sa,socB:sb});save();["#cKwh","#cOdo","#cSocA","#cSocB"].forEach(x=>$(x).value="");render();toast("Recharge enregistrée");
   }else{
     const date=$("#rDate").value,o=num($("#rOdo").value),c=num($("#rCons").value);
     if(!date||n(date)>m.today)return showErr("#rErr","Choisis une date qui n'est pas dans le futur.");
