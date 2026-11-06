@@ -236,6 +236,7 @@ function drawCharts(m){
 }
 function vSaisir(m){
   const today=iso(m.today),p=m.st.prices[m.st.tarif];
+  const dom=S.charges.filter(c=>c.place==="dom"&&c.amps>0).sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0),lastA=dom.length?dom[dom.length-1].amps:8;
   const charge=`<form id="fC" class="card" novalidate><h2>Recharge</h2>
     <p class="small muted">Au branchement : compteur et % batterie (appli myHyundai). Au débranchement : % batterie et kWh de l'écran du chargeur Dé.</p>
     <div class="pair"><label>Date<input type="date" id="cDate" value="${today}"></label>
@@ -244,7 +245,7 @@ function vSaisir(m){
     <label>Batterie après (%)<input id="cSocB" inputmode="numeric" placeholder="80"></label></div>
     <label>kWh côté prise<input id="cKwh" inputmode="decimal" placeholder="18,4"></label>
     <div class="pair"><label>Lieu<select id="cPlace"><option value="dom">Domicile</option><option value="ext">Borne extérieure</option></select></label>
-    <label>Courant réglé<select id="cAmps"><option>6</option><option selected>8</option><option>10</option><option>13</option><option>16</option></select></label></div>
+    <label>Courant réglé<select id="cAmps">${[6,8,10,13,16].map(v=>`<option ${v===lastA?"selected":""}>${v}</option>`).join("")}</select></label></div>
     <label>Prix du kWh (€)<input id="cPrice" inputmode="decimal" value="${f(p,4)}"></label>
     <p class="small muted" id="cPrev" aria-live="polite">Saisis les kWh pour voir le coût.</p>
     <p class="err" id="cErr" hidden></p>
