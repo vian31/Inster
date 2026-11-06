@@ -18,6 +18,11 @@ if(!(S.set.cap>0))S.set.cap=42;if(S.set.soc0===undefined)S.set.soc0=null;
 const dieselAt=d=>{const P=S.set.diesel.prices;let p=P[0].price;for(const x of P)if(n(x.from)<=d)p=x.price;return p*S.set.diesel.conso};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
 let tab="bilan",range=13,formKind="charge";
+/* brouillon de recharge : survit à la fermeture de l'app */
+const DKEY="inster-brouillon-recharge",DF=["cDate","cOdo","cSocA","cSocB","cKwh","cPlace","cAmps","cPrice"];
+const getDraft=()=>{try{return JSON.parse(localStorage.getItem(DKEY))}catch(e){return null}};
+const saveDraft=()=>{const o={};let any=false;DF.forEach(id=>{const e=document.getElementById(id);if(e){o[id]=e.value;if(["cOdo","cSocA","cSocB","cKwh"].includes(id)&&e.value.trim())any=true}});try{any?localStorage.setItem(DKEY,JSON.stringify(o)):localStorage.removeItem(DKEY)}catch(e){}};
+const clearDraft=()=>{try{localStorage.removeItem(DKEY)}catch(e){}};
 
 /* ---- Calculs ---- */
 function model(){
@@ -172,6 +177,7 @@ function vBilan(m){
   const t=m.today,td=dt(t);
   return`
   ${!m.odoList.length?`<div class="card"><h2>Bienvenue</h2><p class="small">Indique le compteur et le % de batterie à la livraison dans Réglages, puis note le compteur et le % avant/après à chaque recharge.</p><div class="row"><button class="btn small" data-tab="regl">Ouvrir les réglages</button></div></div>`:""}
+  ${(()=>{const d=getDraft();return d?`<div class="card"><span><span class="pill good">Recharge en cours</span></span><p class="small">Commencée${d.cSocA?" à "+d.cSocA+" %":""}${d.cOdo?", compteur "+d.cOdo+" km":""}. Complète-la au débranchement.</p><div><button class="btn small" data-go="charge">Terminer la saisie</button></div></div>`:""})()}
   ${reminder(m)?`<div>${reminder(m)}</div>`:""}
   ${backupAge(m)>30&&(m.odoList.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
   <div class="grid two">
@@ -237,7 +243,9 @@ function drawCharts(m){
 function vSaisir(m){
   const today=iso(m.today),p=m.st.prices[m.st.tarif];
   const dom=S.charges.filter(c=>c.place==="dom"&&c.amps>0).sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0),lastA=dom.length?dom[dom.length-1].amps:8;
+  const dr=getDraft();
   const charge=`<form id="fC" class="card" novalidate><h2>Recharge</h2>
+    ${dr?`<div class="lv small"><span class="pill good">Recharge en cours${dr.cSocA?" depuis "+dr.cSocA+" %":""}</span><button type="button" class="btn ghost small" id="dropDraft">Effacer</button></div>`:""}
     <p class="small muted">Au branchement : compteur et % batterie (appli myHyundai). Au débranchement : % batterie et kWh de l'écran du chargeur Dé.</p>
     <div class="pair"><label>Date<input type="date" id="cDate" value="${today}"></label>
     <label>Compteur (km)<input id="cOdo" inputmode="numeric" placeholder="${f(Math.round(m.last.o))}"></label></div>
@@ -311,7 +319,8 @@ function render(){
   const m=model();
   document.querySelectorAll("#nav button").forEach(b=>b.dataset.t===tab?b.setAttribute("aria-current","page"):b.removeAttribute("aria-current"));
   v.innerHTML=tab==="bilan"?vBilan(m):tab==="saisir"?vSaisir(m):tab==="histo"?vHisto(m):vRegl(m);
-  if(tab==="saisir")Object.keys(keep).forEach(k=>{const e=document.getElementById(k);if(e)e.value=keep[k]});
+  if(tab==="saisir"){Object.keys(keep).forEach(k=>{const e=document.getElementById(k);if(e)e.value=keep[k]});
+    const d=getDraft();if(d&&formKind==="charge"){DF.forEach(id=>{const e=document.getElementById(id);if(e&&d[id]!=null)e.value=d[id]});$("#cAmps").disabled=$("#cPlace").value==="ext"}}
   if(tab==="bilan")drawCharts(m);
 }
 function toast(t){const e=$("#toast");e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,2600)}
@@ -335,6 +344,8 @@ $("#view").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;
   if(b.dataset.go){tab="saisir";formKind=b.dataset.go;render();scrollTo(0,0)}
   if(b.dataset.range){range=+b.dataset.range;render()}
+  if(b.id==="dropDraft"){if(armed!=="dropDraft"){armed="dropDraft";b.textContent="Confirmer";return}
+    armed=null;clearDraft();["cOdo","cSocA","cSocB","cKwh"].forEach(x=>$("#"+x).value="");render();toast("Recharge en cours effacée")}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
   if(b.dataset.del){
     if(armed!==b.dataset.del){armed=b.dataset.del;b.textContent="Confirmer";return}
@@ -357,6 +368,7 @@ $("#view").addEventListener("click",e=>{
     armed=null;S.set.diesel.prices=S.set.diesel.prices.filter(x=>x.from!==b.dataset.deld);save();render();toast("Prix supprimé")}
 });
 $("#view").addEventListener("input",e=>{
+  if(DF.includes(e.target.id))saveDraft();
   if(["cKwh","cPrice","cSocA","cSocB"].includes(e.target.id)){const k=num($("#cKwh").value),p=num($("#cPrice").value),sa=num($("#cSocA").value),sb=num($("#cSocB").value);if(k>0&&p>=0)$("#cPrev").textContent=`Coût de la recharge : ${f(k*p,2)} €`+(sb>sa?` · rendement ${f((sb-sa)/100*S.set.cap/k*100,0)} %`:"")}
   if(e.target.id==="rOdo"){const m=model(),o=num(e.target.value);if(o>m.last.o)$("#rPrev").textContent=`Soit ${f(o-m.last.o)} km depuis le ${dm(m.last.d)}.`}
 });
@@ -365,7 +377,8 @@ $("#view").addEventListener("change",e=>{
   if(id==="impFile"){const fl=e.target.files[0];if(!fl)return;const bt=$("#imp");bt.hidden=true;pending=null;armed=null;showErr("#ioErr","");const rd=new FileReader();
     rd.onload=()=>{try{pending=parseBackup(rd.result);bt.textContent=`Restaurer ${pending.readings.length} relevés et ${pending.charges.length} recharges`;bt.hidden=false}catch(x){showErr("#ioErr",x.message)}};
     rd.onerror=()=>showErr("#ioErr","Ce fichier ne peut pas être lu. Choisis un autre fichier.");rd.readAsText(fl);return}
-  if(id==="cPlace"){const p=$("#cPrice");p.value=v==="dom"?f(s.prices[s.tarif],4):"";$("#cAmps").disabled=v==="ext";if(v==="ext")p.focus();return}
+  if(id==="cPlace"){const p=$("#cPrice");p.value=v==="dom"?f(s.prices[s.tarif],4):"";$("#cAmps").disabled=v==="ext";saveDraft();if(v==="ext")p.focus();return}
+  if(DF.includes(id)){saveDraft();return}
   const map={sStart:()=>s.start=v,sMonths:()=>s.months=Math.max(1,num(v)||36),sLimit:()=>s.limit=num(v)||15000,sOdo:()=>s.odo0=num(v)||0,sTarif:()=>s.tarif=v,pBase:()=>s.prices.base=num(v)||0,pHc:()=>s.prices.hc=num(v)||0,pHp:()=>s.prices.hp=num(v)||0,dConso:()=>s.diesel.conso=num(v)||0,sCap:()=>s.cap=num(v)>0?num(v):42,sSoc0:()=>{const x=num(v);s.soc0=x>=0&&x<=100?x:null}};
   if(map[id]){map[id]();save();render()}
 });
@@ -383,7 +396,7 @@ $("#view").addEventListener("submit",e=>{
       if(nx.length&&o>Math.min(...nx))return showErr("#cErr",`Une saisie plus récente indique ${f(Math.min(...nx))} km.`)}
     if((sa!=null)!==(sb!=null))return showErr("#cErr","Saisis le % avant et le % après, ou aucun des deux.");
     if(sa!=null&&!(sa>=0&&sb<=100&&sb>sa))return showErr("#cErr","Le % après doit être plus grand que le % avant, entre 0 et 100.");
-    S.charges.push({id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p,odo:o,socA:sa,socB:sb});save();["#cKwh","#cOdo","#cSocA","#cSocB"].forEach(x=>$(x).value="");render();toast("Recharge enregistrée");
+    S.charges.push({id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p,odo:o,socA:sa,socB:sb});save();["#cKwh","#cOdo","#cSocA","#cSocB"].forEach(x=>$(x).value="");clearDraft();render();toast("Recharge enregistrée");
   }else{
     const date=$("#rDate").value,o=num($("#rOdo").value),c=num($("#rCons").value);
     if(!date||n(date)>m.today)return showErr("#rErr","Choisis une date qui n'est pas dans le futur.");
