@@ -14,6 +14,7 @@ const localToday=()=>{const x=new Date();return Date.UTC(x.getFullYear(),x.getMo
 function fresh(){return{set:{start:"2026-11-05",months:36,limit:15000,dw:6,dy:300,odo0:0,tarif:"base",prices:{base:.2001,hp:.2142,hc:.1589},diesel:{conso:7.5,prices:[{from:"2026-11-05",price:2.385}]},cap:42,soc0:null},readings:[],charges:[]}}
 let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
 if(!S||!S.set)S=fresh();
+if(!S.maint||typeof S.maint.done!=="object")S.maint={done:{}};
 if(!(S.set.cap>0))S.set.cap=42;if(!(S.set.dw>0))S.set.dw=6;if(!(S.set.dy>0))S.set.dy=300;if(S.set.soc0===undefined)S.set.soc0=null;
 const dieselAt=d=>{const P=S.set.diesel.prices;let p=P[0].price;for(const x of P)if(n(x.from)<=d)p=x.price;return p*S.set.diesel.conso};
 const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
@@ -254,6 +255,7 @@ function vBilan(m){
   ${!m.odoList.length?`<div class="card"><h2>Bienvenue</h2><p class="small">Indique le compteur et le % de batterie à la livraison dans Réglages, puis note le compteur et le % avant/après à chaque recharge.</p><div class="row"><button class="btn small" data-tab="regl">Ouvrir les réglages</button></div></div>`:""}
   ${(()=>{const d=getDraft();return d?`<div class="card"><span><span class="pill good">Recharge en cours</span></span><p class="small">Commencée${d.cSocA?" à "+d.cSocA+" %":""}${d.cOdo?", compteur "+d.cOdo+" km":""}. Complète-la au débranchement.</p><div><button class="btn small" data-go="charge">Terminer la saisie</button></div></div>`:""})()}
   ${reminder(m)?`<div>${reminder(m)}</div>`:""}
+  ${maintAlert(m)}
   ${backupAge(m)>30&&(m.odoList.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
   <div class="cards" id="cards">${getOrder().map(k=>`<div class="dz" data-card="${k}"><button class="grip" aria-label="Déplacer ce bloc" title="Glisser pour déplacer"><i></i></button>${C[k](m)}</div>`).join("")}</div>`;
 }
@@ -377,7 +379,7 @@ function vHisto(m){
 }
 let installEvt=null,pending=null;
 const canShareFile=()=>{try{return !!(navigator.canShare&&navigator.canShare({files:[new File(["x"],"x.txt",{type:"text/plain"})]}))}catch(e){return false}};
-const backupText=()=>JSON.stringify({app:"inster-compteur",version:1,exportedAt:iso(localToday()),set:S.set,readings:S.readings,charges:S.charges},null,1);
+const backupText=()=>JSON.stringify({app:"inster-compteur",version:1,exportedAt:iso(localToday()),set:S.set,readings:S.readings,charges:S.charges,maint:S.maint},null,1);
 const exported=()=>{S.lastExport=iso(localToday());save();render();toast(`Sauvegarde créée : ${S.readings.length} relevés, ${S.charges.length} recharges`)};
 function vRegl(m){
   const s=m.st;
@@ -418,7 +420,7 @@ function render(){
   const v=$("#view"),keep={};v.querySelectorAll("input:not([type=date]),select").forEach(i=>{if(i.id)keep[i.id]=i.value});
   const m=model();
   document.querySelectorAll("#nav button").forEach(b=>b.dataset.t===tab?b.setAttribute("aria-current","page"):b.removeAttribute("aria-current"));
-  v.innerHTML=tab==="bilan"?vBilan(m):tab==="saisir"?vSaisir(m):tab==="histo"?vHisto(m):vRegl(m);
+  v.innerHTML=tab==="bilan"?vBilan(m):tab==="saisir"?vSaisir(m):tab==="histo"?vHisto(m):tab==="entretien"?vEntretien(m):vRegl(m);
   if(tab==="saisir"){Object.keys(keep).forEach(k=>{const e=document.getElementById(k);if(e)e.value=keep[k]});
     const d=getDraft();if(d&&formKind==="charge"){DF.forEach(id=>{const e=document.getElementById(id);if(e&&d[id]!=null)e.value=d[id]});$("#cAmps").disabled=$("#cPlace").value==="ext"}}
   if(tab==="bilan")drawCharts(m);
@@ -435,8 +437,61 @@ function parseBackup(t){
   const charges=o.charges.map(c=>{if(!D.test(c.date)||!ok(c.kwh)||!ok(c.price))throw new Error("Une recharge est invalide (date "+String(c.date).slice(0,10)+").");const pc=v=>ok(v)&&v<=100?v:null;return{id:uid(),date:c.date,kwh:c.kwh,amps:ok(c.amps)?c.amps:0,place:c.place==="ext"?"ext":"dom",price:c.price,odo:ok(c.odo)?c.odo:null,socA:pc(c.socA),socB:pc(c.socB)}});
   const s=o.set,p=s.prices||{};
   if(!D.test(s.start)||!ok(s.months)||!ok(s.limit)||!ok(s.odo0))throw new Error("Les réglages du contrat sont invalides dans ce fichier.");
-  return{set:{start:s.start,months:s.months,limit:s.limit,dw:ok(s.dw)&&s.dw>=1&&s.dw<=7?s.dw:6,dy:ok(s.dy)&&s.dy>=1&&s.dy<=366?s.dy:300,odo0:s.odo0,tarif:["base","hc","hp"].includes(s.tarif)?s.tarif:"base",prices:{base:ok(p.base)?p.base:.2001,hc:ok(p.hc)?p.hc:.1589,hp:ok(p.hp)?p.hp:.2142},diesel:{conso:s.diesel&&ok(s.diesel.conso)?s.diesel.conso:7.5,prices:(()=>{const dd=s.diesel||{};const L=Array.isArray(dd.prices)?dd.prices.filter(x=>x&&D.test(x.from)&&ok(x.price)).map(x=>({from:x.from,price:x.price})).sort((x,y)=>x.from<y.from?-1:1):[];return L.length?L:[{from:s.start,price:ok(dd.price)?dd.price:2.385}]})()},cap:ok(s.cap)&&s.cap>0?s.cap:42,soc0:ok(s.soc0)&&s.soc0<=100?s.soc0:null},readings,charges,exportedAt:D.test(o.exportedAt)?o.exportedAt:null};
+  return{set:{start:s.start,months:s.months,limit:s.limit,dw:ok(s.dw)&&s.dw>=1&&s.dw<=7?s.dw:6,dy:ok(s.dy)&&s.dy>=1&&s.dy<=366?s.dy:300,odo0:s.odo0,tarif:["base","hc","hp"].includes(s.tarif)?s.tarif:"base",prices:{base:ok(p.base)?p.base:.2001,hc:ok(p.hc)?p.hc:.1589,hp:ok(p.hp)?p.hp:.2142},diesel:{conso:s.diesel&&ok(s.diesel.conso)?s.diesel.conso:7.5,prices:(()=>{const dd=s.diesel||{};const L=Array.isArray(dd.prices)?dd.prices.filter(x=>x&&D.test(x.from)&&ok(x.price)).map(x=>({from:x.from,price:x.price})).sort((x,y)=>x.from<y.from?-1:1):[];return L.length?L:[{from:s.start,price:ok(dd.price)?dd.price:2.385}]})()},cap:ok(s.cap)&&s.cap>0?s.cap:42,soc0:ok(s.soc0)&&s.soc0<=100?s.soc0:null},readings,charges,maint:{done:Object.fromEntries(Object.entries((o.maint&&o.maint.done)||{}).filter(([k,v])=>v&&D.test(v.d)).map(([k,v])=>[k,{d:v.d,o:ok(v.o)?v.o:null}]))},exportedAt:D.test(o.exportedAt)?o.exportedAt:null};
 }
+/* ---- Entretien (manuel du propriétaire, calendrier normal Europe + contrôle VE) ---- */
+const NORM=["Liquide de frein : remplacement (DOT 4)","Filtre d'habitacle : remplacement","Système de refroidissement, batterie 12 V, circuits électriques","Conduites, flexibles, pédale et frein de stationnement","Disques et plaquettes de frein","Direction, soufflets de transmission, rotules avant","Pneus (pression, usure), boulons du châssis et de la carrosserie","Réfrigérant et compresseur de climatisation"];
+const VE=["Batterie haute tension : résistance d'isolement et écart de tension","Refroidissement : niveau, pompe EWP, vanne 3 voies","Lecture des codes défaut (DTC)","Dessous de caisse : batterie et câbles haute tension"];
+/* un passage tous les 12 mois ou 15 000 km (premier atteint) ; entretien normal tous les 24 mois ou 30 000 km */
+const services=m=>{const a=[];for(let k=1;k<=Math.floor(m.st.months/12);k++){const x=dt(m.start);a.push({id:"s"+k,k,km:15000*k,due:Date.UTC(x.getUTCFullYear()+k,x.getUTCMonth(),x.getUTCDate())/DAY,normal:k%2===0})}return a};
+const RECUR=[
+ {id:"rm",every:30,t:"Contrôle mensuel",d:"Feux, écrous de roue, usure et pression des pneus à froid, niveau de liquide de refroidissement."},
+ {id:"rs",every:182,t:"Contrôle de saison",d:"Au printemps et à l'automne : flexibles, essuie-glaces et lave-glace, réglage des phares, ceintures."},
+ {id:"ra",every:365,t:"Contrôle annuel",d:"Purges de carrosserie, graisse sur charnières, serrures et joints, clim, bornes de la batterie 12 V, niveau de liquide de frein."},
+ {id:"rw",every:30,winter:true,t:"Rinçage du dessous de caisse",d:"Une fois par mois en hiver à cause du sel, et lavage complet en fin d'hiver."}];
+const mDone=id=>S.maint.done[id]||null;
+const stState=(left,kmLeft)=>left<0||kmLeft<=0?["bad","Dépassé"]:left<=45||kmLeft<=1000?["warn","À planifier"]:["good","À venir"];
+function maint(m){
+  const pace=m.driven>0&&m.elapsedL>=14?m.driven/m.elapsedL:m.st.limit/365.25;
+  const sv=services(m).map(s=>{const dn=mDone(s.id),kmLeft=s.km-m.last.o,eta=m.last.d+Math.max(0,kmLeft)/pace,eff=Math.min(s.due,eta),left=Math.round(eff-m.today);
+    return{...s,dn,kmLeft,eta,eff,left,st:dn?["good","Fait"]:stState(left,kmLeft)}});
+  const rc=RECUR.filter(r=>!r.winter||[10,11,0,1,2].includes(dt(m.today).getUTCMonth())).map(r=>{const dn=mDone(r.id),due=(dn?n(dn.d):m.start)+r.every,left=due-m.today;
+    return{...r,dn,due,left,st:left<0?["bad","En retard"]:left<=7?["warn","Bientôt"]:["good","À jour"]}});
+  const full=m.chs.filter(c=>c.socB>=100).map(c=>c.date).sort().pop()||null;
+  return{sv,rc,next:sv.find(s=>!s.dn)||null,late:rc.filter(r=>r.left<0),full,fullAge:full?m.today-n(full):null};
+}
+function maintAlert(m){
+  const t=maint(m),a=[];
+  if(t.next&&t.next.st[0]!=="good")a.push(`<strong>${t.next.normal?"Entretien normal":"Contrôle VE"} ${t.next.k*12} mois</strong> : ${t.next.st[1].toLowerCase()} · ${dm(t.next.due)} ${dt(t.next.due).getUTCFullYear()} ou ${f(t.next.km)} km (encore ${f(Math.max(0,t.next.kmLeft))} km).`);
+  if(t.late.length)a.push(`${t.late.length} contrôle${t.late.length>1?"s":""} récurrent${t.late.length>1?"s":""} en retard.`);
+  return a.length?`<div class="card"><span><span class="pill ${t.next&&t.next.st[0]==="bad"?"bad":"warn"}">! Entretien</span></span>${a.map(x=>`<p class="small">${x}</p>`).join("")}<div><button class="btn ghost small" data-tab="entretien">Voir l'entretien</button></div></div>`:"";
+}
+const li=a=>`<ul class="small mlist">${a.map(x=>`<li>${x}</li>`).join("")}</ul>`;
+function vEntretien(m){
+  const t=maint(m),yr=d=>dm(d)+" "+dt(d).getUTCFullYear();
+  const sv=t.sv.map(s=>`<section class="card"><div class="lv"><h2>${s.k*12} mois · ${f(s.km)} km</h2><span class="pill ${s.st[0]}">${s.st[1]}</span></div>
+    <p class="small">${s.normal?"Entretien normal + contrôle VE":"Contrôle VE (recommandé, facultatif)"}</p>
+    <p class="small muted">Au premier atteint : ${yr(s.due)} ou ${f(s.km)} km.${s.dn?"":` Il reste ${f(Math.max(0,s.kmLeft))} km, soit environ le ${yr(Math.round(s.eta))} au rythme actuel.`}</p>
+    <details><summary class="small">Contenu de l'opération</summary>${s.normal?`<p class="small"><strong>Entretien normal</strong></p>${li(NORM)}`:""}<p class="small"><strong>Contrôle VE</strong></p>${li(VE)}</details>
+    ${s.dn?`<div class="lv small"><span>Fait le ${yr(n(s.dn.d))}${s.dn.o!=null?" · "+f(s.dn.o)+" km":""}</span><button class="btn ghost small" data-munder="${s.id}">Retirer</button></div>`:`<div><button class="btn small" data-mdone="${s.id}">Marquer comme fait aujourd'hui</button></div>`}</section>`).join("");
+  const rc=t.rc.map(r=>`<div class="item"><div><strong>${r.t}</strong> <span class="pill ${r.st[0]}">${r.st[1]}</span><br><span class="small muted">${r.d}</span><br><span class="small muted">${r.dn?"Fait le "+yr(n(r.dn.d))+" · ":""}prochain avant le ${yr(r.due)}</span></div><button class="btn ghost small" data-mdone="${r.id}">Fait</button></div>`).join("");
+  const fa=t.fullAge;
+  return`<section class="card"><h2>Entretien</h2><p class="small muted">D'après le manuel Hyundai Inster (Europe). Au premier atteint : durée ou kilométrage. Garde toutes les factures pour la garantie ; le détail de la garantie figure dans le passeport d'entretien. Compteur : ${f(m.last.o)} km.</p></section>
+  ${sv}
+  <section class="card"><h2>Contrôles récurrents</h2><p class="small muted">À chaque recharge : liquide de refroidissement, lave-glace, pression des pneus.</p><div class="list">${rc}</div></section>
+  <section class="card"><div class="lv"><h2>Batterie</h2><span class="pill ${fa==null?(m.today-m.start>30?"warn":"good"):fa>30?"warn":"good"}">${fa==null?"Aucune charge à 100 %":"Dernière à 100 % : il y a "+fa+" j"}</span></div>
+    ${li(["Charger en courant alternatif ; limiter la charge rapide.","Une charge complète au moins une fois par mois, de préférence depuis 20 % ou moins.","Voiture non utilisée : charger au moins tous les 3 mois.","Avertissement à 25 % (batterie standard), puissance limitée à 15 %."])}</section>
+  <section class="card"><h2>Mémo</h2>
+    <details><summary class="small">Pneus</summary>${li(["185/65 R15 : 2,5 bar à l'avant et à l'arrière (2,6 bar à l'arrière à pleine charge).","205/45 R17 : valeurs sur l'étiquette du montant de porte conducteur.","Mesurer à froid (3 h d'arrêt ou moins de 1,6 km). Ajouter 0,2 bar par temps froid ; la pression baisse d'environ 0,07 bar pour 7 °C de moins.","Remplacer un pneu de plus de 6 ans. Couple des écrous : 11 à 13 kgf·m.","Pas de roue de secours : kit anti-crevaison, produit à ne pas utiliser périmé, 80 km/h maximum ensuite."])}</details>
+    <details><summary class="small">Recharge et chargeur portable</summary>${li(["Chargeur Hyundai d'origine : 6, 8, 10 ou 12 A. Prise 14-16 A : 12 A ; 12-13 A : 10 A ; 10-11 A : 8 A ; 8-9 A : 6 A.","Durée de référence à 230 V / 12 A, de 10 à 100 % : environ 16 h 55 (batterie standard).","Voyant bleu qui clignote : courant limité à 6 A par protection.","Erreur E1 à E9 ou F1 à F8 : débrancher, rebrancher, puis appuyer plus de 2 s sur le bouton.","Pas de rallonge ; prise reliée à la terre.","« Prochain départ » : charge et préchauffage programmés, qui utilisent le secteur plutôt que la batterie."])}</details>
+    <details><summary class="small">Fiche technique</summary>${li(["Batterie 42 kWh, 266 V.","Liquide de frein : DOT 4.","Liquide du réducteur : HK ATF 65 SP4M-1, 0,75 L (contrôle tous les 60 000 km).","Liquide de refroidissement : 8,68 L sans pompe à chaleur, 8,79 L avec (remplacement à 180 000 km ou 10 ans).","Remorquage impossible ; porte-vélos 75 kg maximum ; coffre de 280 à 1 059 L."])}</details></section>`;
+}
+$("#view").addEventListener("click",e=>{
+  const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.mdone){const m=model();S.maint.done[b.dataset.mdone]={d:iso(m.today),o:Math.round(m.last.o)};save();render();toast("Noté comme fait")}
+  if(b.dataset.munder){const k="m:"+b.dataset.munder;if(armed!==k){armed=k;b.textContent="Confirmer";return}armed=null;delete S.maint.done[b.dataset.munder];save();render();toast("Retiré")}
+});
+
 /* ---- Interactions ---- */
 $("#nav").addEventListener("click",e=>{if(e.target.dataset.t){tab=e.target.dataset.t;render();scrollTo(0,0)}});
 let armed=null;
@@ -462,7 +517,7 @@ $("#view").addEventListener("click",e=>{
   if(b.id==="share"){const fl=new File([backupText()],`inster-compteur-${iso(localToday())}.txt`,{type:"text/plain"});navigator.share({files:[fl],title:"Sauvegarde Inster Compteur"}).then(exported,x=>{if(x.name!=="AbortError")toast("Partage impossible. Utilise Télécharger le fichier.")})}
   if(b.id==="install"&&installEvt){installEvt.prompt();installEvt=null;b.hidden=true}
   if(b.id==="imp"&&pending){if(armed!=="imp"){armed="imp";b.textContent="Confirmer : mes données actuelles seront remplacées";return}
-    armed=null;S.set=pending.set;S.readings=pending.readings;S.charges=pending.charges;S.lastExport=pending.exportedAt;pending=null;save();render();toast("Sauvegarde restaurée")}
+    armed=null;S.set=pending.set;S.readings=pending.readings;S.charges=pending.charges;S.maint=pending.maint;S.lastExport=pending.exportedAt;pending=null;save();render();toast("Sauvegarde restaurée")}
   if(b.id==="addD"){const date=$("#dNewDate").value,p=num($("#dNewPrice").value),m=model();
     if(!date||n(date)>m.today)return showErr("#dErr","Choisis une date qui n'est pas dans le futur.");
     if(!(p>0&&p<10))return showErr("#dErr","Saisis un prix au litre, par exemple 2,350.");
