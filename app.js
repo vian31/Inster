@@ -494,6 +494,21 @@ $("#view").addEventListener("click",e=>{
 
 /* ---- Interactions ---- */
 $("#nav").addEventListener("click",e=>{if(e.target.dataset.t){tab=e.target.dataset.t;render();scrollTo(0,0)}});
+/* balayage horizontal entre les onglets */
+const TABS=["bilan","saisir","histo","entretien","regl"];
+let sw=null;
+document.addEventListener("touchstart",e=>{
+  const t=e.touches[0];
+  if(e.touches.length!==1||drag||e.target.closest(".chart,.grip,input,select,textarea,.nav")||t.clientX<24||t.clientX>innerWidth-24){sw=null;return}
+  sw={x:t.clientX,y:t.clientY,t:Date.now()}},{passive:true});
+document.addEventListener("touchend",e=>{
+  if(!sw)return;const t=e.changedTouches[0],dx=t.clientX-sw.x,dy=t.clientY-sw.y,ok=Date.now()-sw.t<700;sw=null;
+  if(!ok||Math.abs(dx)<70||Math.abs(dx)<Math.abs(dy)*2||String(getSelection()))return;
+  const i=TABS.indexOf(tab)+(dx<0?1:-1);if(i<0||i>=TABS.length)return;
+  tab=TABS[i];render();scrollTo(0,0);
+  const v=$("#view"),c=dx<0?"inL":"inR";v.classList.remove("inL","inR");void v.offsetWidth;v.classList.add(c);
+  v.addEventListener("animationend",()=>v.classList.remove(c),{once:true})},{passive:true});
+document.addEventListener("touchcancel",()=>{sw=null},{passive:true});
 let armed=null;
 $("#view").addEventListener("click",e=>{
   const b=e.target.closest("button");if(!b)return;

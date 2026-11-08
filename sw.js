@@ -1,5 +1,5 @@
 // Réseau d'abord pour recevoir les mises à jour, cache si hors connexion.
-const CACHE = "inster-v9";
+const CACHE = "inster-v10";
 const FILES = ["./", "index.html", "app.css", "app.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
   "fonts/saira-600.woff2", "fonts/atkinson-400.woff2", "fonts/atkinson-700.woff2"];
