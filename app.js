@@ -411,7 +411,8 @@ function vRegl(m){
     <p class="small muted" id="persist"></p></section>
    <section class="card"><h2>Application</h2>
     <div><button class="btn ghost" id="install" ${installEvt?"":"hidden"}>Installer sur le téléphone</button></div>
-    <p class="small muted">Si le bouton n'apparaît pas : menu de Chrome, puis « Ajouter à l'écran d'accueil ». L'app fonctionne ensuite hors connexion.</p></section>
+    <p class="small muted">Si le bouton n'apparaît pas : menu de Chrome, puis « Ajouter à l'écran d'accueil ». L'app fonctionne ensuite hors connexion.</p>
+    <p class="small muted" id="ver"></p></section>
    <section class="card"><h2>Effacer</h2>
     <p class="small muted">Supprime les relevés et les recharges de ce téléphone. Les réglages restent.</p>
     <div><button class="btn ghost" id="wipe">Tout effacer</button></div></section>`;
@@ -598,5 +599,6 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden&&localToda
 addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;if(tab==="regl")render()});
 const persistNote=()=>{const p=$("#persist");if(p&&navigator.storage&&navigator.storage.persisted)navigator.storage.persisted().then(v=>{p.textContent=v?"Stockage protégé : le navigateur ne l'effacera pas seul. Un effacement manuel reste possible.":"Stockage non protégé pour le moment : installe l'app pour réduire le risque d'effacement."})};
 if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
-new MutationObserver(persistNote).observe($("#view"),{childList:true});
+const verNote=()=>{const p=$("#ver");if(p)(window.caches?caches.keys():Promise.resolve([])).then(k=>{const v=k.map(x=>/^inster-v(\d+)$/.exec(x)).filter(Boolean).map(x=>+x[1]).sort((x,y)=>y-x)[0];p.textContent="Version "+(v||"–")},()=>{p.textContent="Version –"})};
+new MutationObserver(()=>{persistNote();verNote()}).observe($("#view"),{childList:true});
 if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
