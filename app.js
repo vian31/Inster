@@ -23,7 +23,8 @@ let tab="bilan",range=13,formKind="charge",pieMode="kwh",scale="w";
 const DKEY="inster-brouillon-recharge",DF=["cDate","cOdo","cSocA","cSocB","cKwh","cPlace","cAmps","cPrice"];
 const getDraft=()=>{try{return JSON.parse(localStorage.getItem(DKEY))}catch(e){return null}};
 const saveDraft=()=>{const o={};let any=false;DF.forEach(id=>{const e=document.getElementById(id);if(e){o[id]=e.value;if(["cOdo","cSocA","cSocB","cKwh"].includes(id)&&e.value.trim())any=true}});try{any?localStorage.setItem(DKEY,JSON.stringify(o)):localStorage.removeItem(DKEY)}catch(e){}};
-const clearDraft=()=>{try{localStorage.removeItem(DKEY)}catch(e){}};
+const T0KEY="inster-debut-recharge";
+const clearDraft=()=>{try{localStorage.removeItem(DKEY);localStorage.removeItem(T0KEY)}catch(e){}};
 
 /* ---- Calculs ---- */
 function model(){
@@ -359,7 +360,7 @@ function vSaisir(m){
     <label>Prix du kWh (€)<input id="cPrice" inputmode="decimal" value="${f(p,4)}"></label>
     <p class="small muted" id="cPrev" aria-live="polite">Saisis les kWh pour voir le coût.</p>
     <p class="err" id="cErr" hidden></p>
-    <div><button class="btn">Enregistrer la recharge</button></div></form>`;
+    <div class="foot"><button class="btn">Enregistrer la recharge</button><div class="eta" id="cEta" aria-live="polite"></div></div></form>`;
   const rel=`<form id="fR" class="card" novalidate><h2>Relevé kilométrique</h2>
     <p class="small muted">Dernier relevé : ${f(m.last.o)} km le ${dm(m.last.d)}. Saisis le total du compteur, l'app calcule la distance.</p>
     <div class="pair"><label>Date<input type="date" id="rDate" value="${today}"></label>
@@ -424,6 +425,7 @@ function render(){
   v.innerHTML=tab==="bilan"?vBilan(m):tab==="saisir"?vSaisir(m):tab==="histo"?vHisto(m):tab==="entretien"?vEntretien(m):vRegl(m);
   if(tab==="saisir"){Object.keys(keep).forEach(k=>{const e=document.getElementById(k);if(e)e.value=keep[k]});
     const d=getDraft();if(d&&formKind==="charge"){DF.forEach(id=>{const e=document.getElementById(id);if(e&&d[id]!=null)e.value=d[id]});$("#cAmps").disabled=$("#cPlace").value==="ext"}}
+  if(tab==="saisir")etaUpdate();
   if(tab==="bilan")drawCharts(m);
 }
 function toast(t){const e=$("#toast");e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,2600)}
@@ -492,6 +494,27 @@ $("#view").addEventListener("click",e=>{
   if(b.dataset.mdone){const m=model();S.maint.done[b.dataset.mdone]={d:iso(m.today),o:Math.round(m.last.o)};save();render();toast("Noté comme fait")}
   if(b.dataset.munder){const k="m:"+b.dataset.munder;if(armed!==k){armed=k;b.textContent="Confirmer";return}armed=null;delete S.maint.done[b.dataset.munder];save();render();toast("Retiré")}
 });
+
+/* ---- Heure de fin de charge (à domicile) ---- */
+const getT0=()=>{try{return +localStorage.getItem(T0KEY)||null}catch(e){return null}};
+const durTxt=h=>{const t=Math.round(h*60),a=Math.floor(t/60),b=t%60;return a?a+" h "+String(b).padStart(2,"0"):b+" min"};
+const hhmm=d=>d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+function etaUpdate(){
+  const box=$("#cEta");if(!box)return;
+  const sa=num($("#cSocA").value),sb=num($("#cSocB").value),A=+$("#cAmps").value,t0=getT0();
+  if($("#cPlace").value!=="dom"||!(sa>=0&&sb<=100&&sb>sa)||!(A>0)||!t0){box.innerHTML="";return}
+  const m=model(),g=m.byAmps.find(x=>x.a===A&&x.nb>=2);
+  const r=g?g.eb/g.kwh:m.rendG!=null?m.rendG:.82,src=g?"mesuré à "+A+" A":m.rendG!=null?"moyenne mesurée":"estimé";
+  const h=(sb-sa)/100*m.bcap/r/(230*A/1000),fin=new Date(t0+h*36e5),d0=new Date(t0);
+  const j=Math.round((new Date(fin.getFullYear(),fin.getMonth(),fin.getDate())-new Date(d0.getFullYear(),d0.getMonth(),d0.getDate()))/DAY);
+  box.innerHTML=`<strong>Fin vers ${j?(j===1?"demain ":fin.toLocaleDateString("fr-FR",{weekday:"short",day:"numeric"})+" "):""}${hhmm(fin)}</strong><br>${durTxt(h)} de charge<br><span class="small muted">depuis ${hhmm(d0)} · rendement ${f(r*100,0)} % (${src})</span>`;
+}
+$("#view").addEventListener("input",e=>{
+  if(e.target.id==="cSocA"||e.target.id==="cSocB"){
+    try{const has=$("#cSocA").value.trim()||$("#cSocB").value.trim();
+      if(!has)localStorage.removeItem(T0KEY);else if(!getT0())localStorage.setItem(T0KEY,String(Date.now()))}catch(x){}}
+  if(["cSocA","cSocB"].includes(e.target.id))etaUpdate()});
+$("#view").addEventListener("change",e=>{if(["cAmps","cPlace"].includes(e.target.id))etaUpdate()});
 
 /* ---- Interactions ---- */
 $("#nav").addEventListener("click",e=>{if(e.target.dataset.t){tab=e.target.dataset.t;render();scrollTo(0,0)}});
