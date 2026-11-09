@@ -382,7 +382,7 @@ function vSaisir(m){
 function vHisto(m){
   const a=[...m.reads.map(r=>({...r,t:"r"})),...m.chs.map(c=>({...c,t:"c"}))].sort((x,y)=>x.date<y.date?1:x.date>y.date?-1:0);
   const rows=a.slice(0,40).map(e=>{
-    const pzb=e.t==="c"&&e.debut&&e.fin?`<br><button class="btn ghost small" data-pz="${e.id}" aria-expanded="${PZ.open===e.id}">${PZ.open===e.id?"Masquer":"Températures"}</button>${e.ecartMax!=null?` <span class="pill ${e.ecartMax>=PZ.cfg.alarme?"bad":e.ecartMax>=PZ.cfg.alerte?"warn":"good"}">${e.ecartMax>=PZ.cfg.alerte?"!":"✓"} ${ecTxt(e.ecartMax)}</span>`:""}`:"";
+    const pzb=e.t==="c"&&e.debut&&e.fin&&!e.pzNone?`<br><button class="btn ghost small" data-pz="${e.id}" aria-expanded="${PZ.open===e.id}">${PZ.open===e.id?"Masquer":"Températures"}</button>${e.ecartMax!=null?` <span class="pill ${e.ecartMax>=PZ.cfg.alarme?"bad":e.ecartMax>=PZ.cfg.alerte?"warn":"good"}">${e.ecartMax>=PZ.cfg.alerte?"!":"✓"} ${ecTxt(e.ecartMax)}</span>`:""}`:"";
     const line=e.t==="r"?`<strong>Relevé ${f(e.odo)} km</strong>${e.conso?`<br><span class="small muted">${f(e.conso,1)} kWh/100 km voiture</span>`:""}`
       :`<strong>Recharge ${f(e.kwh,1)} kWh</strong><br><span class="small muted">${e.place==="dom"?"Domicile · "+e.amps+" A":"Borne extérieure"} · ${f(e.kwh*e.price,2)} €${e.odo!=null?" · "+f(e.odo)+" km":""}${e.socA!=null&&e.socB!=null?" · "+e.socA+" → "+e.socB+" %"+(e.socB>e.socA?" · rendement "+f((e.socB-e.socA)/100*m.bcap/e.kwh*100,0)+" %":""):""}</span>`;
     return`<div class="item"><div><span class="small muted">${dm(n(e.date))} ${dt(n(e.date)).getUTCFullYear()}</span><br>${line}${pzb}</div><button class="btn ghost small" data-del="${e.t}:${e.id}">Supprimer</button></div>${PZ.open===e.id?`<div class="pzd" id="pzd-${e.id}"></div>`:""}`}).join("");
@@ -535,7 +535,7 @@ $("#view").addEventListener("change",e=>{if(["cAmps","cPlace"].includes(e.target
    Firestore (cloud.js) : prise/etat (dernière mesure, écrite par la sonde), prise/charge (charge en cours,
    écrite par l'app), prise/config (seuils, écrits par l'app), priseMesures/{lot} (historique de la sonde).
    Températures en °C ; l'écart prise − ambiante s'affiche « +x °C ». */
-const PZ={live:null,cfg:{alerte:25,alarme:35,tmax:70,ntfy:true,buzzer:true},err:"",pts:null,ptsAt:0,cache:{},tried:{},open:null};
+const PZ={live:null,cfg:{alerte:25,alarme:35,tmax:70,ntfy:true,buzzer:true},COUPE:77,REPRISE:67,err:"",pts:null,ptsAt:0,cache:{},tried:{},open:null};
 window.Inster.prise=(k,v)=>{if(k==="cfg")PZ.cfg={...PZ.cfg,...v};else PZ[k]=v;priseRefresh()};
 const pzApi=()=>window.Prise&&window.Prise.ok()?window.Prise:null;
 const pzDebut=()=>{const d=getDraft(),t=getT0();return d&&t&&(d.cPlace||"dom")==="dom"?t:null};
@@ -567,6 +567,7 @@ function thermo(tp,ta,lv){
   if(al!=null)s+=`<line x1="20" x2="30" y1="${y(al)}" y2="${y(al)}" stroke="var(--gold)" stroke-width="3"/>`;
   s+=`<line x1="20" x2="30" y1="${y(am)}" y2="${y(am)}" stroke="var(--bad)" stroke-width="3"/>`;
   if(ta!=null)s+=`<path d="M18 ${y(ta)-5}L27 ${y(ta)}L18 ${y(ta)+5}Z" fill="var(--s1)"/>`;
+  s+=`<line x1="24" x2="56" y1="${y(PZ.COUPE)}" y2="${y(PZ.COUPE)}" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="3 3"/>`;
   return`<svg class="thermo viz" viewBox="0 0 84 174" role="img" aria-label="Thermomètre : prise ${tp!=null?f(tp,1)+" °C":"sans mesure"}${ta!=null?", ambiante "+f(ta,1)+" °C":""}">${s}</svg>`;
 }
 function spark(pts,col){
@@ -592,11 +593,12 @@ function vPrise(){
         <div class="pzKv"><span class="muted">Écart</span><strong>${ec!=null?ecTxt(ec):"–"}</strong></div>
         ${L.tend!=null?`<div class="pzKv"><span class="muted">Tendance</span><strong>${ecTxt(L.tend)}<small> /10 min</small></strong></div>`:""}
         ${L.hr!=null?`<div class="pzKv"><span class="muted">Humidité</span><strong>${f(L.hr,0)} %</strong></div>`:""}</div></div>
-    <div class="legend"><span><i class="tri"></i>Ambiante</span><span><i style="background:var(--gold);height:3px"></i>Alerte ${"+"+PZ.cfg.alerte} °C</span><span><i style="background:var(--bad);height:3px"></i>Alarme</span></div>
+    <div class="legend"><span><i class="tri"></i>Ambiante</span><span><i style="background:var(--gold);height:3px"></i>Alerte ${"+"+PZ.cfg.alerte} °C</span><span><i style="background:var(--bad);height:3px"></i>Alarme</span><span><i style="background:var(--ink);height:2px"></i>Coupure chargeur ${PZ.COUPE} °C</span></div>
     ${t0?spark(PZ.pts,PZCOL[lv]):""}
     ${off?`<p class="small">Aucune mesure depuis <strong>${ago(pzAge())}</strong>${L.t?" (dernière à "+hhmm(new Date(L.t))+")":""}. Vérifier l'alimentation de l'ESP32 ou le wifi du garage.</p>`
       :`<p class="small muted">Mesure il y a ${ago(pzAge())}${t0?" · charge depuis "+hhmm(new Date(t0)):""}</p>`}
     ${lv==="bad"&&!off?`<p class="small" style="color:var(--bad)"><strong>Débrancher et vérifier la prise.</strong></p>`:""}
+    ${t0&&!off&&L.tp!=null&&L.tp>=PZ.REPRISE?`<p class="small">Le chargeur coupe la charge si sa fiche dépasse ${PZ.COUPE} °C et reprend sous ${PZ.REPRISE} °C : la charge est peut-être en pause.</p>`:""}
   </section>`;
 }
 function priseRefresh(){
@@ -639,9 +641,11 @@ function pzLoad(c){
       <div class="chart" id="pzc1-${c.id}"></div>
       <div class="legend"><span><i style="background:var(--teal)"></i>Écart prise − ambiante</span><span><i style="background:var(--gold);height:3px"></i>Alerte +${PZ.cfg.alerte} °C</span><span><i style="background:var(--bad);height:3px"></i>Alarme +${PZ.cfg.alarme} °C</span></div>
       <div class="chart" id="pzc2-${c.id}" style="min-height:150px"></div>`;
-    tchart($("#pzc1-"+c.id),P,{band:[c.debut,c.fin],aria:"Températures de la prise et ambiante pendant la recharge",series:[{k:"ta",c:"var(--s1)",name:"Ambiante"},{k:"tp",c:"var(--s2)",name:"Prise"}]});
+    tchart($("#pzc1-"+c.id),P,{band:[c.debut,c.fin],lines:st&&st.tpMax>=60?[{v:PZ.COUPE,c:"var(--ink)"}]:[],aria:"Températures de la prise et ambiante pendant la recharge",series:[{k:"ta",c:"var(--s1)",name:"Ambiante"},{k:"tp",c:"var(--s2)",name:"Prise"}]});
     tchart($("#pzc2-"+c.id),P,{h:150,zero:true,band:[c.debut,c.fin],lines:[{v:PZ.cfg.alerte,c:"var(--gold)"},{v:PZ.cfg.alarme,c:"var(--bad)"}],aria:"Écart de température entre la prise et l'ambiante",series:[{k:"ec",c:"var(--teal)",name:"Écart",fill:true}]});
-    if(st&&(c.ecartMax!==st.ecartMax||c.tpMax!==st.tpMax)&&Date.now()>c.fin+90*6e4){const x=S.charges.find(z=>z.id===c.id);if(x){x.ecartMax=st.ecartMax;x.tpMax=st.tpMax;save()}}};
+    if(Date.now()>c.fin+90*6e4){const x=S.charges.find(z=>z.id===c.id);
+      if(x&&st&&(x.ecartMax!==st.ecartMax||x.tpMax!==st.tpMax)){x.ecartMax=st.ecartMax;x.tpMax=st.tpMax;save()}
+      else if(x&&!st&&!x.pzNone){x.pzNone=true;save()}}};
   if(PZ.cache[c.id])return draw(PZ.cache[c.id]);
   if(!api){box.innerHTML=`<p class="small muted">Connecte-toi (Réglages › Synchronisation) pour lire les mesures de la sonde.</p>`;return}
   box.innerHTML=`<p class="small muted">Chargement des mesures…</p>`;
@@ -650,9 +654,10 @@ function pzLoad(c){
 /* remplit en arrière-plan l'écart max des recharges terminées, pour la liste et la comparaison */
 function pzFill(){
   const api=pzApi();if(!api)return;
-  const todo=S.charges.filter(c=>c.debut&&c.fin&&c.ecartMax==null&&!PZ.tried[c.id]&&Date.now()>c.fin+90*6e4).slice(0,6);
+  const todo=S.charges.filter(c=>c.debut&&c.fin&&c.ecartMax==null&&!c.pzNone&&!PZ.tried[c.id]&&Date.now()>c.fin+90*6e4).slice(0,6);
   todo.forEach(c=>{PZ.tried[c.id]=1;const[a,b]=pzWin(c);api.mesures(a,b).then(p=>{PZ.cache[c.id]=p;const st=pzStats(c,p);const x=S.charges.find(z=>z.id===c.id);
-    if(st&&x){x.ecartMax=st.ecartMax;x.tpMax=st.tpMax;save();if(tab==="histo")render()}},()=>{})});
+    if(!x)return;if(st){x.ecartMax=st.ecartMax;x.tpMax=st.tpMax}else x.pzNone=true; /* pas de mesures (ex. recharge d'avant la sonde) */
+    save();if(tab==="histo")render()},()=>{})});
 }
 function vPzAmps(){
   const g={};S.charges.filter(c=>c.place==="dom"&&c.ecartMax!=null).forEach(c=>{(g[c.amps]=g[c.amps]||[]).push(c.ecartMax)});
@@ -681,7 +686,7 @@ function vPzRegl(){
     <label class="chk"><input type="checkbox" id="pzBuzz" ${c.buzzer?"checked":""}>Buzzer de la sonde en alarme</label>
     <p class="err" id="pzErr" hidden></p>
     <div class="row"><button class="btn" id="pzSave">Enregistrer</button><button class="btn ghost" id="pzTest">Notification de test</button></div>
-    <p class="small muted">Écart = température de la prise moins l'ambiante du garage. Les seuils sont lus par la sonde dans Firebase : pas besoin de la reprogrammer pour les changer.</p></section>`;
+    <p class="small muted">Le chargeur coupe de lui-même si sa fiche dépasse ${PZ.COUPE} °C (reprise sous ${PZ.REPRISE} °C) : garder l'alarme en dessous pour être prévenu avant. Écart = température de la prise moins l'ambiante du garage. Les seuils sont lus par la sonde dans Firebase : pas besoin de la reprogrammer pour les changer.</p></section>`;
 }
 
 /* ---- Interactions ---- */
@@ -715,7 +720,7 @@ $("#view").addEventListener("click",e=>{
   if(b.id==="pzSave"||b.id==="pzTest"){const api=pzApi();if(!api)return showErr("#pzErr","Connecte-toi d'abord dans Synchronisation.");
     let o;if(b.id==="pzTest")o={test:Date.now()};else{const al=num($("#pzAlerte").value),am=num($("#pzAlarme").value),tm=num($("#pzTmax").value);
       if(!(al>0&&am>al&&am<=60))return showErr("#pzErr","L'écart d'alarme doit être plus grand que celui d'alerte, au plus 60 °C.");
-      if(!(tm>=30&&tm<=100))return showErr("#pzErr","Température maxi de la prise entre 30 et 100 °C.");
+      if(!(tm>=30&&tm<PZ.COUPE))return showErr("#pzErr",`Température maxi de la prise entre 30 et ${PZ.COUPE-1} °C, sous la coupure du chargeur.`);
       o={alerte:al,alarme:am,tmax:tm,ntfy:$("#pzNtfy").checked,buzzer:$("#pzBuzz").checked}}
     showErr("#pzErr","");api.setCfg(o).then(()=>toast(b.id==="pzTest"?"Demande envoyée à la sonde":"Seuils enregistrés"),x=>showErr("#pzErr","Envoi impossible : "+(x.code||x.message)))}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
