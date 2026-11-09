@@ -535,7 +535,7 @@ $("#view").addEventListener("change",e=>{if(["cAmps","cPlace"].includes(e.target
    Firestore (cloud.js) : prise/etat (dernière mesure, écrite par la sonde), prise/charge (charge en cours,
    écrite par l'app), prise/config (seuils, écrits par l'app), priseMesures/{lot} (historique de la sonde).
    Températures en °C ; l'écart prise − ambiante s'affiche « +x °C ». */
-const PZ={live:null,cfg:{alerte:25,alarme:35,tmax:70,ntfy:true,buzzer:true},COUPE:77,REPRISE:67,err:"",pts:null,ptsAt:0,cache:{},tried:{},open:null};
+const PZ={live:null,cfg:{alerte:25,alarme:35,tmax:70,ntfy:true},COUPE:77,REPRISE:67,err:"",pts:null,ptsAt:0,cache:{},tried:{},open:null};
 window.Inster.prise=(k,v)=>{if(k==="cfg")PZ.cfg={...PZ.cfg,...v};else PZ[k]=v;priseRefresh()};
 const pzApi=()=>window.Prise&&window.Prise.ok()?window.Prise:null;
 const pzDebut=()=>{const d=getDraft(),t=getT0();return d&&t&&(d.cPlace||"dom")==="dom"?t:null};
@@ -683,7 +683,6 @@ function vPzRegl(){
     <div class="pair"><label>Alerte : écart (°C)<input id="pzAlerte" inputmode="decimal" value="${f(c.alerte,0)}"></label><label>Alarme : écart (°C)<input id="pzAlarme" inputmode="decimal" value="${f(c.alarme,0)}"></label></div>
     <label>Alarme : prise au-dessus de (°C)<input id="pzTmax" inputmode="decimal" value="${f(c.tmax,0)}"></label>
     <label class="chk"><input type="checkbox" id="pzNtfy" ${c.ntfy?"checked":""}>Notifications ntfy</label>
-    <label class="chk"><input type="checkbox" id="pzBuzz" ${c.buzzer?"checked":""}>Buzzer de la sonde en alarme</label>
     <p class="err" id="pzErr" hidden></p>
     <div class="row"><button class="btn" id="pzSave">Enregistrer</button><button class="btn ghost" id="pzTest">Notification de test</button></div>
     <p class="small muted">Le chargeur coupe de lui-même si sa fiche dépasse ${PZ.COUPE} °C (reprise sous ${PZ.REPRISE} °C) : garder l'alarme en dessous pour être prévenu avant. Écart = température de la prise moins l'ambiante du garage. Les seuils sont lus par la sonde dans Firebase : pas besoin de la reprogrammer pour les changer.</p></section>`;
@@ -721,7 +720,7 @@ $("#view").addEventListener("click",e=>{
     let o;if(b.id==="pzTest")o={test:Date.now()};else{const al=num($("#pzAlerte").value),am=num($("#pzAlarme").value),tm=num($("#pzTmax").value);
       if(!(al>0&&am>al&&am<=60))return showErr("#pzErr","L'écart d'alarme doit être plus grand que celui d'alerte, au plus 60 °C.");
       if(!(tm>=30&&tm<PZ.COUPE))return showErr("#pzErr",`Température maxi de la prise entre 30 et ${PZ.COUPE-1} °C, sous la coupure du chargeur.`);
-      o={alerte:al,alarme:am,tmax:tm,ntfy:$("#pzNtfy").checked,buzzer:$("#pzBuzz").checked}}
+      o={alerte:al,alarme:am,tmax:tm,ntfy:$("#pzNtfy").checked}}
     showErr("#pzErr","");api.setCfg(o).then(()=>toast(b.id==="pzTest"?"Demande envoyée à la sonde":"Seuils enregistrés"),x=>showErr("#pzErr","Envoi impossible : "+(x.code||x.message)))}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
   if(b.dataset.del){

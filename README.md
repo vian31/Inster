@@ -32,7 +32,7 @@ Le début de charge est la première saisie du % batterie (onglet Saisir) ; l'ap
 |---|---|---|
 | `prise/etat` | sonde | `t` (ms), `tp` prise °C, `ta` ambiante °C, `hr` %, `rssi`, `fw`, `tend` (°C/10 min, facultatif) |
 | `prise/charge` | app | `active`, `debut` (ms), `socA`, `amps`, `maj` |
-| `prise/config` | app | `alerte`, `alarme` (écarts °C), `tmax` (°C), `ntfy`, `buzzer`, `test` (ms : demande une notification de test) |
+| `prise/config` | app | `alerte`, `alarme` (écarts °C), `tmax` (°C), `ntfy`, `test` (ms : demande une notification de test) |
 | `priseMesures/{lot}` | sonde | `t0`, `t1` (ms), tableaux parallèles `t`, `tp`, `ta`, `hr` |
 
 Règles : voir `firestore.rules` (remplacer les deux UID avant de publier).
