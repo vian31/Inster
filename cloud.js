@@ -2,7 +2,7 @@
 // Firestore garde une copie dans le document users/{uid}. Le champ rev (horodatage) départage les deux.
 import { initializeApp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-app.js";
 import { getAuth, onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-auth.js";
-import { getFirestore, doc, onSnapshot, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
+import { getFirestore, doc, onSnapshot, setDoc, serverTimestamp, collection, query, where, orderBy, getDocs } from "https://www.gstatic.com/firebasejs/13.2.0/firebase-firestore.js";
 
 // Cette configuration n'est pas secrète : l'accès est protégé par la connexion Google et les règles Firestore.
 const app = initializeApp({
@@ -55,10 +55,38 @@ function listen() {
   }, e => { unsub = null; err = "Lecture impossible : " + e.code; paint(); }); // relancé par le bouton Synchroniser
 }
 
+// ---- Sonde de température de la prise (voir app.js et le firmware ESP32) ----
+// prise/etat : dernière mesure (sonde) · prise/charge : charge en cours (app) · prise/config : seuils (app)
+// priseMesures/{lot} : { t0, t1, t:[ms], tp:[°C], ta:[°C], hr:[%] } (sonde)
+let pzUnsubs = [];
+const pz = (k, v) => window.Inster && window.Inster.prise && window.Inster.prise(k, v);
+const pzDenied = e => pz("err", e.code === "permission-denied" ? "Accès refusé : publier les règles Firestore de la sonde (voir README)." : "Lecture de la sonde impossible : " + e.code);
+function pzListen() {
+  pzUnsubs.push(onSnapshot(doc(db, "prise", "etat"), s => { pz("err", ""); pz("live", s.exists() ? s.data() : null); }, pzDenied));
+  pzUnsubs.push(onSnapshot(doc(db, "prise", "config"), s => { if (s.exists()) pz("cfg", s.data()); }, () => {}));
+}
+function pzStop() { pzUnsubs.forEach(u => u()); pzUnsubs = []; pz("live", null); }
+window.Prise = {
+  ok: () => !!user,
+  setCharge: o => user ? setDoc(doc(db, "prise", "charge"), { ...o, maj: Date.now() }).catch(() => {}) : Promise.resolve(),
+  setCfg: o => user ? setDoc(doc(db, "prise", "config"), o, { merge: true }) : Promise.reject(new Error("non connecté")),
+  // mesures entre a et b (ms) : les lots commencent au plus 1 h avant a
+  mesures: async (a, b) => {
+    const q = query(collection(db, "priseMesures"), where("t0", ">=", a - 36e5), where("t0", "<=", b), orderBy("t0"));
+    const out = [];
+    (await getDocs(q)).forEach(d => {
+      const x = d.data();
+      (x.t || []).forEach((t, i) => { if (t >= a && t <= b) out.push({ t, tp: x.tp?.[i] ?? null, ta: x.ta?.[i] ?? null, hr: x.hr?.[i] ?? null }); });
+    });
+    return out.sort((p, q2) => p.t - q2.t);
+  }
+};
+
 onAuthStateChanged(auth, u => {
   if (unsub) { unsub(); unsub = null; }
+  pzStop();
   user = u; last = null; err = "";
-  if (u) listen();
+  if (u) { listen(); pzListen(); }
   paint();
 });
 

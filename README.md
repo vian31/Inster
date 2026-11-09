@@ -22,3 +22,17 @@ L'export JSON depuis Réglages reste disponible comme sauvegarde de secours. Ne 
 Fichiers statiques sans étape de compilation. Settings > Pages > Deploy from a branch > `main` / `(root)`.
 
 Après une modification, changer `CACHE` dans `sw.js`.
+
+## Sonde de température de la prise
+Un ESP32 (SHT40 dans la prise, DS18B20 pour l'ambiante) mesure la prise de recharge et alerte via ntfy. L'app affiche la carte « Prise » (thermomètre) dans Bilan pendant une charge, les courbes de chaque recharge dans Historique et les seuils dans Réglages. Les écarts s'affichent en °C au-dessus de l'ambiante.
+
+Le début de charge est la première saisie du % batterie (onglet Saisir) ; l'app l'écrit dans `prise/charge` et la sonde passe alors en mesure rapide. Chaque recharge enregistrée garde `debut` et `fin` (ms) pour retrouver ses mesures, et `ecartMax` / `tpMax` une fois calculés.
+
+| Document | Écrit par | Contenu |
+|---|---|---|
+| `prise/etat` | sonde | `t` (ms), `tp` prise °C, `ta` ambiante °C, `hr` %, `rssi`, `fw`, `tend` (°C/10 min, facultatif) |
+| `prise/charge` | app | `active`, `debut` (ms), `socA`, `amps`, `maj` |
+| `prise/config` | app | `alerte`, `alarme` (écarts °C), `tmax` (°C), `ntfy`, `buzzer`, `test` (ms : demande une notification de test) |
+| `priseMesures/{lot}` | sonde | `t0`, `t1` (ms), tableaux parallèles `t`, `tp`, `ta`, `hr` |
+
+Règles : voir `firestore.rules` (remplacer les deux UID avant de publier).

@@ -1,0 +1,25 @@
+rules_version = '2';
+// Règles Firestore du projet inster-a7e5d. À coller dans la console Firebase (Firestore > Règles).
+// Remplacer les deux UID (Firebase > Authentication > Utilisateurs, colonne « UID utilisateur ») :
+//   UID_PROPRIETAIRE : ton compte Google ; UID_SONDE : le compte e-mail/mot de passe de l'ESP32.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function proprietaire() { return request.auth != null && request.auth.uid == 'UID_PROPRIETAIRE'; }
+    function sonde() { return request.auth != null && request.auth.uid == 'UID_SONDE'; }
+
+    // données de l'app (inchangé)
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    // prise/etat (écrit par la sonde), prise/charge et prise/config (écrits par l'app, lus par la sonde)
+    match /prise/{d} {
+      allow read: if proprietaire() || sonde();
+      allow write: if (proprietaire() && d in ['charge', 'config']) || (sonde() && d == 'etat');
+    }
+    // historique des mesures : la sonde ajoute des lots, l'app les lit (et peut purger)
+    match /priseMesures/{lot} {
+      allow read, delete: if proprietaire();
+      allow create, update: if sonde();
+    }
+  }
+}

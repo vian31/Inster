@@ -263,6 +263,7 @@ function vBilan(m){
   return`
   ${!m.odoList.length?`<div class="card"><h2>Bienvenue</h2><p class="small">Indique le compteur et le % de batterie à la livraison dans Réglages, puis note le compteur et le % avant/après à chaque recharge.</p><div class="row"><button class="btn small" data-tab="regl">Ouvrir les réglages</button></div></div>`:""}
   ${(()=>{const d=getDraft();return d?`<div class="card"><span><span class="pill good">Recharge en cours</span></span><p class="small">Commencée${d.cSocA?" à "+d.cSocA+" %":""}${d.cOdo?", compteur "+d.cOdo+" km":""}. Complète-la au débranchement.</p><div><button class="btn small" data-go="charge">Terminer la saisie</button></div></div>`:""})()}
+  <div id="priseSlot">${vPrise()}</div>
   ${reminder(m)?`<div>${reminder(m)}</div>`:""}
   ${maintAlert(m)}
   ${backupAge(m)>30&&(m.odoList.length||m.chs.length)?`<div class="card"><span><span class="pill warn">! Sauvegarde</span></span><p class="small">${S.lastExport?"Dernière sauvegarde il y a "+backupAge(m)+" jours.":"Aucune sauvegarde depuis le début."} Si les données du navigateur sont effacées, tout est perdu.</p><div><button class="btn ghost small" data-tab="regl">Sauvegarder</button></div></div>`:""}
@@ -381,10 +382,11 @@ function vSaisir(m){
 function vHisto(m){
   const a=[...m.reads.map(r=>({...r,t:"r"})),...m.chs.map(c=>({...c,t:"c"}))].sort((x,y)=>x.date<y.date?1:x.date>y.date?-1:0);
   const rows=a.slice(0,40).map(e=>{
+    const pzb=e.t==="c"&&e.debut&&e.fin?`<br><button class="btn ghost small" data-pz="${e.id}" aria-expanded="${PZ.open===e.id}">${PZ.open===e.id?"Masquer":"Températures"}</button>${e.ecartMax!=null?` <span class="pill ${e.ecartMax>=PZ.cfg.alarme?"bad":e.ecartMax>=PZ.cfg.alerte?"warn":"good"}">${e.ecartMax>=PZ.cfg.alerte?"!":"✓"} ${ecTxt(e.ecartMax)}</span>`:""}`:"";
     const line=e.t==="r"?`<strong>Relevé ${f(e.odo)} km</strong>${e.conso?`<br><span class="small muted">${f(e.conso,1)} kWh/100 km voiture</span>`:""}`
       :`<strong>Recharge ${f(e.kwh,1)} kWh</strong><br><span class="small muted">${e.place==="dom"?"Domicile · "+e.amps+" A":"Borne extérieure"} · ${f(e.kwh*e.price,2)} €${e.odo!=null?" · "+f(e.odo)+" km":""}${e.socA!=null&&e.socB!=null?" · "+e.socA+" → "+e.socB+" %"+(e.socB>e.socA?" · rendement "+f((e.socB-e.socA)/100*m.bcap/e.kwh*100,0)+" %":""):""}</span>`;
-    return`<div class="item"><div><span class="small muted">${dm(n(e.date))} ${dt(n(e.date)).getUTCFullYear()}</span><br>${line}</div><button class="btn ghost small" data-del="${e.t}:${e.id}">Supprimer</button></div>`}).join("");
-  return`<section class="card"><h2>Historique</h2><div class="list">${rows||'<p class="muted">Aucune saisie pour le moment. Ajoute un relevé dans l\'onglet Saisir.</p>'}</div>${a.length>40?`<p class="small muted">Les ${f(a.length-40)} saisies plus anciennes sont masquées.</p>`:""}</section>`;
+    return`<div class="item"><div><span class="small muted">${dm(n(e.date))} ${dt(n(e.date)).getUTCFullYear()}</span><br>${line}${pzb}</div><button class="btn ghost small" data-del="${e.t}:${e.id}">Supprimer</button></div>${PZ.open===e.id?`<div class="pzd" id="pzd-${e.id}"></div>`:""}`}).join("");
+  return`${vPzAmps()}<section class="card"><h2>Historique</h2><div class="list">${rows||'<p class="muted">Aucune saisie pour le moment. Ajoute un relevé dans l\'onglet Saisir.</p>'}</div>${a.length>40?`<p class="small muted">Les ${f(a.length-40)} saisies plus anciennes sont masquées.</p>`:""}</section>`;
 }
 let installEvt=null,pending=null;
 const canShareFile=()=>{try{return !!(navigator.canShare&&navigator.canShare({files:[new File(["x"],"x.txt",{type:"text/plain"})]}))}catch(e){return false}};
@@ -413,6 +415,7 @@ function vRegl(m){
     <p class="small muted">Prix de départ : moyenne nationale partielle du 29 octobre 2026.</p></section>
    <section class="card"><h2>Synchronisation</h2>
     <div id="cloud"><p class="small muted">Synchronisation indisponible pour le moment (hors connexion ?). Tes saisies restent sur le téléphone et seront envoyées plus tard.</p></div></section>
+   ${vPzRegl()}
    <section class="card"><h2>Sauvegarde</h2>
     <p class="small muted">${S.lastExport?"Dernier export : "+dm(n(S.lastExport))+" "+dt(n(S.lastExport)).getUTCFullYear()+".":"Aucun export pour le moment."} Fichier de secours, en plus de la synchronisation : garde-le ailleurs, par exemple sur ton Drive.</p>
     <div class="row"><button class="btn" id="share" ${canShareFile()?"":"hidden"}>Partager vers Drive…</button><button class="btn ${canShareFile()?"ghost":""}" id="dl">Télécharger le fichier</button></div>
@@ -437,6 +440,7 @@ function render(){
     const d=getDraft();if(d&&formKind==="charge"){DF.forEach(id=>{const e=document.getElementById(id);if(e&&d[id]!=null)e.value=d[id]});$("#cAmps").disabled=$("#cPlace").value==="ext"}}
   if(tab==="saisir")etaUpdate();
   if(tab==="bilan")drawCharts(m);
+  if(tab==="histo"){pzFill();if(PZ.open){const c=S.charges.find(x=>x.id===PZ.open);if(c)pzLoad(c)}}
 }
 function toast(t){const e=$("#toast");e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,2600)}
 const num=s=>parseFloat(String(s).replace(/\s/g,"").replace(",","."));
@@ -522,9 +526,163 @@ function etaUpdate(){
 $("#view").addEventListener("input",e=>{
   if(e.target.id==="cSocA"||e.target.id==="cSocB"){
     try{const has=$("#cSocA").value.trim()||$("#cSocB").value.trim();
-      if(!has)localStorage.removeItem(T0KEY);else if(!getT0())localStorage.setItem(T0KEY,String(Date.now()))}catch(x){}}
+      if(!has)localStorage.removeItem(T0KEY);else if(!getT0())localStorage.setItem(T0KEY,String(Date.now()))}catch(x){}
+    pzSync()}
   if(["cSocA","cSocB"].includes(e.target.id))etaUpdate()});
-$("#view").addEventListener("change",e=>{if(["cAmps","cPlace"].includes(e.target.id))etaUpdate()});
+$("#view").addEventListener("change",e=>{if(["cAmps","cPlace"].includes(e.target.id)){etaUpdate();pzSync()}});
+
+/* ---- Sonde de température de la prise (ESP32 + SHT40 dans la prise, DS18B20 ambiante) ----
+   Firestore (cloud.js) : prise/etat (dernière mesure, écrite par la sonde), prise/charge (charge en cours,
+   écrite par l'app), prise/config (seuils, écrits par l'app), priseMesures/{lot} (historique de la sonde).
+   Températures en °C ; l'écart prise − ambiante s'affiche « +x °C ». */
+const PZ={live:null,cfg:{alerte:25,alarme:35,tmax:70,ntfy:true,buzzer:true},err:"",pts:null,ptsAt:0,cache:{},tried:{},open:null};
+window.Inster.prise=(k,v)=>{if(k==="cfg")PZ.cfg={...PZ.cfg,...v};else PZ[k]=v;priseRefresh()};
+const pzApi=()=>window.Prise&&window.Prise.ok()?window.Prise:null;
+const pzDebut=()=>{const d=getDraft(),t=getT0();return d&&t&&(d.cPlace||"dom")==="dom"?t:null};
+const ago=ms=>{const s=Math.max(0,Math.round(ms/1000));return s<60?s+" s":s<3600?Math.round(s/60)+" min":Math.floor(s/3600)+" h "+String(Math.round(s%3600/60)).padStart(2,"0")};
+const pzAge=()=>PZ.live&&PZ.live.t?Date.now()-PZ.live.t:Infinity;
+const pzOff=()=>pzAge()>(pzDebut()?5:15)*6e4;
+const pzSeuilAlarme=ta=>ta!=null?Math.min(ta+PZ.cfg.alarme,PZ.cfg.tmax):PZ.cfg.tmax;
+function pzLevel(tp,ta){
+  if(tp==null)return"off";
+  if(tp>=PZ.cfg.tmax||(ta!=null&&tp-ta>=PZ.cfg.alarme))return"bad";
+  if(ta!=null&&tp-ta>=PZ.cfg.alerte)return"warn";
+  return"good";
+}
+const PZCOL={good:"var(--teal)",warn:"var(--gold)",bad:"var(--bad)",off:"var(--muted)"};
+const ecTxt=v=>(v>=0?"+":"−")+f(Math.abs(v),1)+" °C";
+let pzT=null;
+/* signale à la sonde le début et la fin de charge (début = première saisie du % batterie, cf. T0KEY) */
+const pzSync=()=>{clearTimeout(pzT);pzT=setTimeout(()=>{const api=pzApi();if(!api)return;const t=pzDebut(),d=getDraft()||{};
+  api.setCharge(t?{active:true,debut:t,socA:d.cSocA?num(d.cSocA):null,amps:+(d.cAmps||8)}:{active:false})},1200)};
+
+function thermo(tp,ta,lv){
+  const y=v=>134-Math.max(-4,Math.min(84,v))/80*120;
+  const col=PZCOL[lv],al=ta!=null?ta+PZ.cfg.alerte:null,am=pzSeuilAlarme(ta);
+  let s=`<rect x="30" y="6" width="20" height="138" rx="10" fill="var(--bg)" stroke="var(--line)" stroke-width="2"/><circle cx="40" cy="154" r="17" fill="var(--bg)" stroke="var(--line)" stroke-width="2"/>`;
+  for(let v=0;v<=80;v+=20)s+=`<line x1="53" x2="59" y1="${y(v)}" y2="${y(v)}" stroke="var(--muted)" stroke-width="1.5"/><text class="gl" x="62" y="${y(v)+4}">${v}</text>`;
+  for(let v=10;v<80;v+=20)s+=`<line x1="53" x2="56" y1="${y(v)}" y2="${y(v)}" stroke="var(--muted)"/>`;
+  if(tp!=null)s+=`<rect x="35" y="${y(tp).toFixed(1)}" width="10" height="${(152-y(tp)).toFixed(1)}" rx="5" fill="${col}"/>`;
+  s+=`<circle cx="40" cy="154" r="12" fill="${col}"/>`;
+  if(al!=null)s+=`<line x1="20" x2="30" y1="${y(al)}" y2="${y(al)}" stroke="var(--gold)" stroke-width="3"/>`;
+  s+=`<line x1="20" x2="30" y1="${y(am)}" y2="${y(am)}" stroke="var(--bad)" stroke-width="3"/>`;
+  if(ta!=null)s+=`<path d="M18 ${y(ta)-5}L27 ${y(ta)}L18 ${y(ta)+5}Z" fill="var(--s1)"/>`;
+  return`<svg class="thermo viz" viewBox="0 0 84 174" role="img" aria-label="Thermomètre : prise ${tp!=null?f(tp,1)+" °C":"sans mesure"}${ta!=null?", ambiante "+f(ta,1)+" °C":""}">${s}</svg>`;
+}
+function spark(pts,col){
+  if(!pts||pts.length<3)return"";
+  const W=300,H=44,t0=pts[0].t,t1=pts[pts.length-1].t,ec=pts.map(p=>p.tp!=null&&p.ta!=null?p.tp-p.ta:null).filter(v=>v!=null);
+  if(!ec.length)return"";const mx=Math.max(5,...ec),mn=Math.min(0,...ec);
+  let d="",pen=false;pts.forEach(p=>{if(p.tp==null||p.ta==null){pen=false;return}d+=(pen?"L":"M")+((p.t-t0)/(t1-t0||1)*W).toFixed(1)+" "+(H-4-(p.tp-p.ta-mn)/(mx-mn)*(H-10)).toFixed(1);pen=true});
+  return`<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}" fill="none" stroke="${col}" stroke-width="2.5" stroke-linejoin="round"/></svg><p class="small muted">Écart depuis le début de la charge</p>`;
+}
+function vPrise(){
+  if(!PZ.live)return"";
+  const L=PZ.live,t0=pzDebut(),off=pzOff();
+  if(!t0&&!off)return`<section class="card" id="prise"><div class="rhead"><h2>Prise</h2><span class="pill ${L.tp==null?"warn":"good"}">${L.tp==null?"! Sonde prise HS":"● En ligne"}</span></div>
+    <p class="small muted">Pas de charge en cours${L.tp!=null?" · prise "+f(L.tp,1)+" °C":""}${L.ta!=null?", ambiante "+f(L.ta,1)+" °C":""}.</p></section>`;
+  const lv=off?"off":pzLevel(L.tp,L.ta),ec=L.tp!=null&&L.ta!=null?L.tp-L.ta:null;
+  const pill=off?["warn","! Capteur hors ligne"]:lv==="bad"?["bad","!! Alarme"]:lv==="warn"?["warn","! Échauffement"]:lv==="off"?["warn","! Sonde prise HS"]:["good","✓ Normal"];
+  if(t0&&(!PZ.pts||Date.now()-PZ.ptsAt>5*6e4)){const api=pzApi();PZ.ptsAt=Date.now();if(api)api.mesures(t0,Date.now()).then(p=>{PZ.pts=p;priseRefresh()},()=>{})}
+  return`<section class="card${lv==="bad"&&!off?" alarm":""}" id="prise">
+    <div class="rhead"><h2>Prise</h2><span class="pill ${pill[0]}">${pill[1]}</span></div>
+    <div class="pzRow">${thermo(L.tp,L.ta,lv)}
+      <div class="pzTxt"><div class="pzBig"${lv!=="good"?` style="color:${PZCOL[lv]}"`:""}>${L.tp!=null?f(L.tp,1):"–"}<small> °C</small></div>
+        <div class="pzKv"><span class="muted">Ambiante</span><strong>${L.ta!=null?f(L.ta,1)+" °C":"–"}</strong></div>
+        <div class="pzKv"><span class="muted">Écart</span><strong>${ec!=null?ecTxt(ec):"–"}</strong></div>
+        ${L.tend!=null?`<div class="pzKv"><span class="muted">Tendance</span><strong>${ecTxt(L.tend)}<small> /10 min</small></strong></div>`:""}
+        ${L.hr!=null?`<div class="pzKv"><span class="muted">Humidité</span><strong>${f(L.hr,0)} %</strong></div>`:""}</div></div>
+    <div class="legend"><span><i class="tri"></i>Ambiante</span><span><i style="background:var(--gold);height:3px"></i>Alerte ${"+"+PZ.cfg.alerte} °C</span><span><i style="background:var(--bad);height:3px"></i>Alarme</span></div>
+    ${t0?spark(PZ.pts,PZCOL[lv]):""}
+    ${off?`<p class="small">Aucune mesure depuis <strong>${ago(pzAge())}</strong>${L.t?" (dernière à "+hhmm(new Date(L.t))+")":""}. Vérifier l'alimentation de l'ESP32 ou le wifi du garage.</p>`
+      :`<p class="small muted">Mesure il y a ${ago(pzAge())}${t0?" · charge depuis "+hhmm(new Date(t0)):""}</p>`}
+    ${lv==="bad"&&!off?`<p class="small" style="color:var(--bad)"><strong>Débrancher et vérifier la prise.</strong></p>`:""}
+  </section>`;
+}
+function priseRefresh(){
+  if(tab==="bilan"){const e=$("#prise"),h=vPrise();if(e){if(h)e.outerHTML=h;else e.remove()}else if(h){const a=$("#priseSlot");if(a)a.innerHTML=h}}
+  if(tab==="regl"){const e=$("#pzStat");if(e)e.innerHTML=pzStat()}
+}
+setInterval(()=>{if(!document.hidden&&PZ.live)priseRefresh()},30000);
+
+/* graphique temporel (axe x en heures réelles, trous si la sonde s'est tue plus de 15 min) */
+function tchart(host,pts,o){
+  host.innerHTML="";const W=Math.max(280,host.clientWidth||320),H=o.h||190,ml=34,mr=10,mt=12,mb=22;
+  const vals=pts.flatMap(p=>o.series.map(s=>p[s.k])).filter(v=>v!=null);
+  if(pts.length<2||!vals.length){host.innerHTML=`<p class="muted small">Pas de mesures de la sonde pour cette recharge.</p>`;return}
+  const lim=(o.lines||[]).map(l=>l.v);
+  let lo=o.zero?Math.min(0,Math.floor(Math.min(...vals)/5)*5):Math.floor((Math.min(...vals)-1)/5)*5,hi=Math.ceil((Math.max(...vals,...lim)+1)/5)*5;if(hi-lo<10)hi=lo+10;
+  const t0=pts[0].t,t1=pts[pts.length-1].t,xT=t=>ml+(t-t0)/(t1-t0||1)*(W-ml-mr),ys=v=>mt+(H-mt-mb)*(1-(v-lo)/(hi-lo));
+  let s="";const st=(hi-lo)/((hi-lo)%10===0&&hi-lo<=40?(hi-lo)/10:(hi-lo)/5);
+  for(let v=lo;v<=hi+.01;v+=st)s+=`<line class="gridl" x1="${ml}" x2="${W-mr}" y1="${ys(v)}" y2="${ys(v)}"/><text x="${ml-5}" y="${ys(v)+4}" text-anchor="end">${o.zero&&v>0?"+":""}${f(v)}</text>`;
+  if(o.band){const a=xT(Math.max(t0,o.band[0])),b=xT(Math.min(t1,o.band[1]));if(b>a)s+=`<rect x="${a}" y="${mt}" width="${b-a}" height="${H-mt-mb}" fill="var(--butter)" opacity=".1"/>`}
+  const hs=[1,2,3,4,6].find(h=>(t1-t0)/36e5/h<=5)||6,d0=new Date(t0);d0.setMinutes(0,0,0);
+  for(let t=+d0+36e5;t<t1;t+=36e5){const h=new Date(t).getHours();if(h%hs===0)s+=`<text x="${xT(t)}" y="${H-6}" text-anchor="middle">${String(h).padStart(2,"0")} h</text>`}
+  (o.lines||[]).forEach(l=>{if(l.v<=hi)s+=`<line x1="${ml}" x2="${W-mr}" y1="${ys(l.v)}" y2="${ys(l.v)}" stroke="${l.c}" stroke-width="1.5" stroke-dasharray="5 4"/>`});
+  o.series.forEach(se=>{let d="",pen=false,pt=0;pts.forEach(p=>{const v=p[se.k];if(v==null||p.t-pt>9e5)pen=false;pt=p.t;if(v==null)return;d+=(pen?"L":"M")+xT(p.t).toFixed(1)+" "+ys(v).toFixed(1);pen=true});
+    if(se.fill)s+=`<path d="${d}V${ys(Math.max(lo,0))}H${xT(pts.find(p=>p[se.k]!=null).t)}Z" fill="${se.c}" opacity=".15" stroke="none"/>`;
+    s+=`<path d="${d}" fill="none" stroke="${se.c}" stroke-width="2.2" stroke-linejoin="round"/>`});
+  s+=`<line id="cr" x1="0" x2="0" y1="${mt}" y2="${H-mb}" stroke="var(--muted)" stroke-width="1" style="display:none"/>`;
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${o.aria}">${s}</svg>`;
+  const svg=host.querySelector("svg"),it=pts.map(p=>({tip:`<strong>${hhmm(new Date(p.t))}</strong><br>`+o.series.map(se=>`${se.name} : ${p[se.k]==null?"–":o.zero?ecTxt(p[se.k]):f(p[se.k],1)+" °C"}`).join("<br>")}));
+  tooltips(host,svg,W,it,i=>xT(pts[i].t),svg.querySelector("#cr"));
+}
+const pzWin=c=>[c.debut-30*6e4,c.fin+90*6e4];
+const pzStats=(c,pts)=>{const w=pts.filter(p=>p.t>=c.debut&&p.t<=c.fin+30*6e4&&p.tp!=null&&p.ta!=null);
+  return w.length?{ecartMax:Math.round(Math.max(...w.map(p=>p.tp-p.ta))*10)/10,tpMax:Math.round(Math.max(...w.map(p=>p.tp))*10)/10}:null};
+function pzLoad(c){
+  const api=pzApi(),box=$("#pzd-"+c.id);if(!box)return;
+  const draw=pts=>{const b=$("#pzd-"+c.id);if(!b)return;
+    const P=pts.map(p=>({...p,ec:p.tp!=null&&p.ta!=null?p.tp-p.ta:null})),st=pzStats(c,pts);
+    b.innerHTML=`${st?`<div class="kv3"><div>Écart max<strong>${ecTxt(st.ecartMax)}</strong></div><div>Prise max<strong>${f(st.tpMax,1)} °C</strong></div><div>Durée<strong>${durTxt((c.fin-c.debut)/36e5)}</strong></div></div>`:""}
+      <div class="legend"><span><i style="background:var(--s2)"></i>Prise</span><span><i style="background:var(--s1)"></i>Ambiante</span><span><i style="background:var(--butter);opacity:.4"></i>Charge</span></div>
+      <div class="chart" id="pzc1-${c.id}"></div>
+      <div class="legend"><span><i style="background:var(--teal)"></i>Écart prise − ambiante</span><span><i style="background:var(--gold);height:3px"></i>Alerte +${PZ.cfg.alerte} °C</span><span><i style="background:var(--bad);height:3px"></i>Alarme +${PZ.cfg.alarme} °C</span></div>
+      <div class="chart" id="pzc2-${c.id}" style="min-height:150px"></div>`;
+    tchart($("#pzc1-"+c.id),P,{band:[c.debut,c.fin],aria:"Températures de la prise et ambiante pendant la recharge",series:[{k:"ta",c:"var(--s1)",name:"Ambiante"},{k:"tp",c:"var(--s2)",name:"Prise"}]});
+    tchart($("#pzc2-"+c.id),P,{h:150,zero:true,band:[c.debut,c.fin],lines:[{v:PZ.cfg.alerte,c:"var(--gold)"},{v:PZ.cfg.alarme,c:"var(--bad)"}],aria:"Écart de température entre la prise et l'ambiante",series:[{k:"ec",c:"var(--teal)",name:"Écart",fill:true}]});
+    if(st&&(c.ecartMax!==st.ecartMax||c.tpMax!==st.tpMax)&&Date.now()>c.fin+90*6e4){const x=S.charges.find(z=>z.id===c.id);if(x){x.ecartMax=st.ecartMax;x.tpMax=st.tpMax;save()}}};
+  if(PZ.cache[c.id])return draw(PZ.cache[c.id]);
+  if(!api){box.innerHTML=`<p class="small muted">Connecte-toi (Réglages › Synchronisation) pour lire les mesures de la sonde.</p>`;return}
+  box.innerHTML=`<p class="small muted">Chargement des mesures…</p>`;
+  const[a,b]=pzWin(c);api.mesures(a,b).then(p=>{PZ.cache[c.id]=p;draw(p)},e=>{const b2=$("#pzd-"+c.id);if(b2)b2.innerHTML=`<p class="err">Lecture impossible : ${e.code||e.message}</p>`});
+}
+/* remplit en arrière-plan l'écart max des recharges terminées, pour la liste et la comparaison */
+function pzFill(){
+  const api=pzApi();if(!api)return;
+  const todo=S.charges.filter(c=>c.debut&&c.fin&&c.ecartMax==null&&!PZ.tried[c.id]&&Date.now()>c.fin+90*6e4).slice(0,6);
+  todo.forEach(c=>{PZ.tried[c.id]=1;const[a,b]=pzWin(c);api.mesures(a,b).then(p=>{PZ.cache[c.id]=p;const st=pzStats(c,p);const x=S.charges.find(z=>z.id===c.id);
+    if(st&&x){x.ecartMax=st.ecartMax;x.tpMax=st.tpMax;save();if(tab==="histo")render()}},()=>{})});
+}
+function vPzAmps(){
+  const g={};S.charges.filter(c=>c.place==="dom"&&c.ecartMax!=null).forEach(c=>{(g[c.amps]=g[c.amps]||[]).push(c.ecartMax)});
+  const rows=Object.keys(g).map(Number).sort((a,b)=>a-b).map(a=>({a,v:g[a].reduce((s,x)=>s+x,0)/g[a].length,nb:g[a].length}));
+  if(!rows.length)return"";
+  const sc=Math.max(PZ.cfg.alarme,...rows.map(r=>r.v))*1.05,pos=PZ.cfg.alerte/sc*100;
+  return`<section class="card"><h2>Écart max moyen par courant</h2><div class="hb">${rows.map(r=>`<div class="hrow"><span class="hl">${r.a} A</span><div class="htrk" style="position:relative"><div class="hbar" style="width:${(r.v/sc*100).toFixed(1)}%;background:${r.v>=PZ.cfg.alerte?"var(--gold)":"var(--s1)"}"></div><i class="pzMark" style="left:${pos.toFixed(1)}%"></i></div><strong class="hv">${ecTxt(r.v)}</strong></div><div class="small muted hsub">${r.nb} recharge${r.nb>1?"s":""}</div>`).join("")}</div>
+    <div class="legend"><span><i style="background:var(--gold);height:3px"></i>Seuil d'alerte +${PZ.cfg.alerte} °C</span></div>
+    <p class="small muted">Plus haute température de la prise au-dessus de l'ambiante, en moyenne par réglage du chargeur. Sert à décider s'il est raisonnable de monter d'un cran.</p></section>`;
+}
+function pzStat(){
+  const api=pzApi();
+  if(!api)return`<p class="small muted">Connecte-toi dans Synchronisation (plus bas) pour relier la sonde : elle passe par le même projet Firebase.</p>`;
+  if(PZ.err)return`<p class="err">${PZ.err}</p>`;
+  if(!PZ.live)return`<p class="small muted">Aucune mesure reçue : la sonde n'est pas encore en service.</p>`;
+  const L=PZ.live,off=pzOff();
+  return`<div class="rhead"><span class="small">Dernière mesure il y a ${ago(pzAge())}</span><span class="pill ${off?"warn":"good"}">${off?"! Hors ligne":"● En ligne"}</span></div>
+    <div class="kv3"><div>Prise<strong>${L.tp!=null?f(L.tp,1)+" °C":"–"}</strong></div><div>Wifi<strong>${L.rssi!=null?L.rssi+" dBm":"–"}</strong></div><div>Firmware<strong>${L.fw||"–"}</strong></div></div>`;
+}
+function vPzRegl(){
+  const c=PZ.cfg;
+  return`<section class="card"><h2>Sonde de prise</h2><div id="pzStat">${pzStat()}</div>
+    <div class="pair"><label>Alerte : écart (°C)<input id="pzAlerte" inputmode="decimal" value="${f(c.alerte,0)}"></label><label>Alarme : écart (°C)<input id="pzAlarme" inputmode="decimal" value="${f(c.alarme,0)}"></label></div>
+    <label>Alarme : prise au-dessus de (°C)<input id="pzTmax" inputmode="decimal" value="${f(c.tmax,0)}"></label>
+    <label class="chk"><input type="checkbox" id="pzNtfy" ${c.ntfy?"checked":""}>Notifications ntfy</label>
+    <label class="chk"><input type="checkbox" id="pzBuzz" ${c.buzzer?"checked":""}>Buzzer de la sonde en alarme</label>
+    <p class="err" id="pzErr" hidden></p>
+    <div class="row"><button class="btn" id="pzSave">Enregistrer</button><button class="btn ghost" id="pzTest">Notification de test</button></div>
+    <p class="small muted">Écart = température de la prise moins l'ambiante du garage. Les seuils sont lus par la sonde dans Firebase : pas besoin de la reprogrammer pour les changer.</p></section>`;
+}
 
 /* ---- Interactions ---- */
 $("#nav").addEventListener("click",e=>{if(e.target.dataset.t){tab=e.target.dataset.t;render();scrollTo(0,0)}});
@@ -552,7 +710,14 @@ $("#view").addEventListener("click",e=>{
   if(b.dataset.scale){scale=b.dataset.scale;render()}
   if(b.dataset.ring){scale=SCALES[(SCALES.indexOf(scale)+1)%4];render()}
   if(b.id==="dropDraft"){if(armed!=="dropDraft"){armed="dropDraft";b.textContent="Confirmer";return}
-    armed=null;clearDraft();["cOdo","cSocA","cSocB","cKwh"].forEach(x=>$("#"+x).value="");render();toast("Recharge en cours effacée")}
+    armed=null;clearDraft();pzSync();["cOdo","cSocA","cSocB","cKwh"].forEach(x=>$("#"+x).value="");render();toast("Recharge en cours effacée")}
+  if(b.dataset.pz){PZ.open=PZ.open===b.dataset.pz?null:b.dataset.pz;render()}
+  if(b.id==="pzSave"||b.id==="pzTest"){const api=pzApi();if(!api)return showErr("#pzErr","Connecte-toi d'abord dans Synchronisation.");
+    let o;if(b.id==="pzTest")o={test:Date.now()};else{const al=num($("#pzAlerte").value),am=num($("#pzAlarme").value),tm=num($("#pzTmax").value);
+      if(!(al>0&&am>al&&am<=60))return showErr("#pzErr","L'écart d'alarme doit être plus grand que celui d'alerte, au plus 60 °C.");
+      if(!(tm>=30&&tm<=100))return showErr("#pzErr","Température maxi de la prise entre 30 et 100 °C.");
+      o={alerte:al,alarme:am,tmax:tm,ntfy:$("#pzNtfy").checked,buzzer:$("#pzBuzz").checked}}
+    showErr("#pzErr","");api.setCfg(o).then(()=>toast(b.id==="pzTest"?"Demande envoyée à la sonde":"Seuils enregistrés"),x=>showErr("#pzErr","Envoi impossible : "+(x.code||x.message)))}
   if(b.dataset.kind){formKind=b.dataset.kind;render()}
   if(b.dataset.del){
     if(armed!==b.dataset.del){armed=b.dataset.del;b.textContent="Confirmer";return}
@@ -603,7 +768,9 @@ $("#view").addEventListener("submit",e=>{
       if(nx.length&&o>Math.min(...nx))return showErr("#cErr",`Une saisie plus récente indique ${f(Math.min(...nx))} km.`)}
     if((sa!=null)!==(sb!=null))return showErr("#cErr","Saisis le % avant et le % après, ou aucun des deux.");
     if(sa!=null&&!(sa>=0&&sb<=100&&sb>sa))return showErr("#cErr","Le % après doit être plus grand que le % avant, entre 0 et 100.");
-    S.charges.push({id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p,odo:o,socA:sa,socB:sb});save();["#cKwh","#cOdo","#cSocA","#cSocB"].forEach(x=>$(x).value="");clearDraft();render();toast("Recharge enregistrée");
+    const ch={id:uid(),date,kwh:k,amps:+$("#cAmps").value,place,price:p,odo:o,socA:sa,socB:sb},t0=getT0();
+    if(place==="dom"&&t0){ch.debut=t0;ch.fin=Date.now()} /* fenêtre des mesures de la sonde */
+    S.charges.push(ch);save();["#cKwh","#cOdo","#cSocA","#cSocB"].forEach(x=>$(x).value="");clearDraft();pzSync();render();toast("Recharge enregistrée");
   }else{
     const date=$("#rDate").value,o=num($("#rOdo").value);
     if(!date||n(date)>m.today)return showErr("#rErr","Choisis une date qui n'est pas dans le futur.");
