@@ -12,12 +12,20 @@ const KEY="inster-compteur-v1";
 const localToday=()=>{const x=new Date();return Date.UTC(x.getFullYear(),x.getMonth(),x.getDate())/DAY};
 
 function fresh(){return{set:{start:"2026-11-05",months:36,limit:15000,dw:6,dy:300,odo0:0,tarif:"base",prices:{base:.2001,hp:.2142,hc:.1589},diesel:{conso:7.5,prices:[{from:"2026-11-05",price:2.385}]},cap:42,soc0:null},readings:[],charges:[]}}
+function fix(o){
+  if(!o||!o.set)o=fresh();
+  if(!Array.isArray(o.readings))o.readings=[];if(!Array.isArray(o.charges))o.charges=[];
+  if(!o.maint||typeof o.maint.done!=="object")o.maint={done:{}};
+  if(!(o.set.cap>0))o.set.cap=42;if(!(o.set.dw>0))o.set.dw=6;if(!(o.set.dy>0))o.set.dy=300;if(o.set.soc0===undefined)o.set.soc0=null;
+  return o}
 let S;try{S=JSON.parse(localStorage.getItem(KEY))}catch(e){S=null}
-if(!S||!S.set)S=fresh();
-if(!S.maint||typeof S.maint.done!=="object")S.maint={done:{}};
-if(!(S.set.cap>0))S.set.cap=42;if(!(S.set.dw>0))S.set.dw=6;if(!(S.set.dy>0))S.set.dy=300;if(S.set.soc0===undefined)S.set.soc0=null;
+S=fix(S);
 const dieselAt=d=>{const P=S.set.diesel.prices;let p=P[0].price;for(const x of P)if(n(x.from)<=d)p=x.price;return p*S.set.diesel.conso};
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
+const store=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Enregistrement impossible : le navigateur refuse le stockage. Exporte tes données.")}};
+/* rev : horodatage de la dernière modification, sert à départager le téléphone et Firestore (cloud.js) */
+const save=()=>{S.rev=Date.now();store();if(window.cloudPush)window.cloudPush()};
+/* appelé par cloud.js quand Firestore contient une version plus récente */
+window.Inster={state:()=>S,adopt:o=>{S=fix(o);store();render()}};
 let tab="bilan",range=13,formKind="charge",pieMode="kwh",scale="w";
 /* brouillon de recharge : survit à la fermeture de l'app */
 const DKEY="inster-brouillon-recharge",DF=["cDate","cOdo","cSocA","cSocB","cKwh","cPlace","cAmps","cPrice"];
@@ -403,8 +411,10 @@ function vRegl(m){
     <div><button class="btn ghost" id="addD">Ajouter ce prix</button></div>
     <div class="list">${[...s.diesel.prices].reverse().map(x=>`<div class="item"><div>${f(x.price,3)} €/L<br><span class="small muted">depuis le ${dm(n(x.from))} ${dt(n(x.from)).getUTCFullYear()}</span></div>${s.diesel.prices.length>1?`<button class="btn ghost small" data-deld="${x.from}">Supprimer</button>`:""}</div>`).join("")}</div>
     <p class="small muted">Prix de départ : moyenne nationale partielle du 29 octobre 2026.</p></section>
+   <section class="card"><h2>Synchronisation</h2>
+    <div id="cloud"><p class="small muted">Synchronisation indisponible pour le moment (hors connexion ?). Tes saisies restent sur le téléphone et seront envoyées plus tard.</p></div></section>
    <section class="card"><h2>Sauvegarde</h2>
-    <p class="small muted">${S.lastExport?"Dernier export : "+dm(n(S.lastExport))+" "+dt(n(S.lastExport)).getUTCFullYear()+".":"Aucun export pour le moment."} Tes données n'existent que sur ce téléphone : garde le fichier ailleurs, par exemple sur ton Drive.</p>
+    <p class="small muted">${S.lastExport?"Dernier export : "+dm(n(S.lastExport))+" "+dt(n(S.lastExport)).getUTCFullYear()+".":"Aucun export pour le moment."} Fichier de secours, en plus de la synchronisation : garde-le ailleurs, par exemple sur ton Drive.</p>
     <div class="row"><button class="btn" id="share" ${canShareFile()?"":"hidden"}>Partager vers Drive…</button><button class="btn ${canShareFile()?"ghost":""}" id="dl">Télécharger le fichier</button></div>
     <label>Restaurer une sauvegarde<input type="file" id="impFile" accept=".json,.txt,application/json,text/plain"></label>
     <p class="err" id="ioErr" hidden></p>

@@ -1,6 +1,6 @@
 // Réseau d'abord pour recevoir les mises à jour, cache si hors connexion.
-const CACHE = "inster-v13";
-const FILES = ["./", "index.html", "app.css", "app.js", "manifest.webmanifest",
+const CACHE = "inster-v14";
+const FILES = ["./", "index.html", "app.css", "app.js", "cloud.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/icon-maskable-512.png",
   "fonts/saira-600.woff2", "fonts/atkinson-400.woff2", "fonts/atkinson-700.woff2"];
 
@@ -12,11 +12,20 @@ self.addEventListener("install", e => {
 });
 self.addEventListener("activate", e => {
   e.waitUntil(caches.keys()
-    .then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k))))
+    .then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== "firebase-sdk").map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 self.addEventListener("fetch", e => {
-  if (e.request.method !== "GET" || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  // SDK Firebase : URL versionnée donc immuable, cache d'abord pour démarrer hors connexion.
+  if (e.request.method === "GET" && url.hostname === "www.gstatic.com" && url.pathname.startsWith("/firebasejs/")) {
+    e.respondWith(caches.open("firebase-sdk").then(c => c.match(e.request).then(r => r || fetch(e.request).then(res => {
+      if (res.ok) c.put(e.request, res.clone());
+      return res;
+    }))));
+    return;
+  }
+  if (e.request.method !== "GET" || url.origin !== location.origin) return;
   e.respondWith(
     fetch(e.request.url, { cache: "no-cache" }).then(r => {
       if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
