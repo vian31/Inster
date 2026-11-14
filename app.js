@@ -578,10 +578,9 @@ function spark(pts,col){
   return`<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d}" fill="none" stroke="${col}" stroke-width="2.5" stroke-linejoin="round"/></svg><p class="small muted">Écart depuis le début de la charge</p>`;
 }
 function vPrise(){
-  if(!PZ.live)return"";
-  const L=PZ.live,t0=pzDebut(),off=pzOff();
-  if(!t0&&!off)return`<section class="card" id="prise"><div class="rhead"><h2>Prise</h2><span class="pill ${L.tp==null?"warn":"good"}">${L.tp==null?"! Sonde prise HS":"● En ligne"}</span></div>
-    <p class="small muted">Pas de charge en cours${L.tp!=null?" · prise "+f(L.tp,1)+" °C":""}${L.ta!=null?", ambiante "+f(L.ta,1)+" °C":""}.</p></section>`;
+  const t0=pzDebut();
+  if(!PZ.live||!t0)return""; /* tuile visible seulement pendant une charge (l'ESP32 est débranché entre deux recharges) */
+  const L=PZ.live,off=pzOff();
   const lv=off?"off":pzLevel(L.tp,L.ta),ec=L.tp!=null&&L.ta!=null?L.tp-L.ta:null;
   const pill=off?["warn","! Capteur hors ligne"]:lv==="bad"?["bad","!! Alarme"]:lv==="warn"?["warn","! Échauffement"]:lv==="off"?["warn","! Sonde prise HS"]:["good","✓ Normal"];
   if(t0&&(!PZ.pts||Date.now()-PZ.ptsAt>5*6e4)){const api=pzApi();PZ.ptsAt=Date.now();if(api)api.mesures(t0,Date.now()).then(p=>{PZ.pts=p;priseRefresh()},()=>{})}
