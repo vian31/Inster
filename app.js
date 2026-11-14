@@ -426,6 +426,8 @@ function vRegl(m){
    <section class="card"><h2>Application</h2>
     <div><button class="btn ghost" id="install" ${installEvt?"":"hidden"}>Installer sur le téléphone</button></div>
     <p class="small muted">Si le bouton n'apparaît pas : menu de Chrome, puis « Ajouter à l'écran d'accueil ». L'app fonctionne ensuite hors connexion.</p>
+    <div><button class="btn ghost" id="upd">Forcer la mise à jour</button></div>
+    <p class="small muted">Recharge la dernière version publiée sur GitHub en vidant le cache de l'app. Tes données ne sont pas touchées.</p>
     <p class="small muted" id="ver"></p></section>
    <section class="card"><h2>Effacer</h2>
     <p class="small muted">Supprime les relevés et les recharges de ce téléphone. Les réglages restent.</p>
@@ -733,6 +735,15 @@ $("#view").addEventListener("click",e=>{
   if(b.id==="dl"){const u=URL.createObjectURL(new Blob([backupText()],{type:"application/json"})),l=document.createElement("a");l.href=u;l.download=`inster-compteur-${iso(localToday())}.json`;document.body.append(l);l.click();l.remove();setTimeout(()=>URL.revokeObjectURL(u),5000);exported()}
   if(b.id==="share"){const fl=new File([backupText()],`inster-compteur-${iso(localToday())}.txt`,{type:"text/plain"});navigator.share({files:[fl],title:"Sauvegarde Inster Compteur"}).then(exported,x=>{if(x.name!=="AbortError")toast("Partage impossible. Utilise Télécharger le fichier.")})}
   if(b.id==="install"&&installEvt){installEvt.prompt();installEvt=null;b.hidden=true}
+  if(b.id==="upd"){b.disabled=true;b.textContent="Mise à jour…";
+    /* 1) re-télécharger les fichiers sans le cache HTTP (échoue hors connexion : on ne touche alors à rien)
+       2) vider le cache de l'app et désinscrire le service worker (localStorage et Firestore restent intacts)
+       3) recharger : le service worker se réinstalle avec les fichiers frais */
+    Promise.all(["./","index.html","app.css","app.js","cloud.js","manifest.webmanifest","sw.js"].map(u=>fetch(u,{cache:"reload"}).then(r=>{if(!r.ok)throw new Error(u)})))
+      .then(()=>Promise.all([
+        navigator.serviceWorker?navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))):0,
+        window.caches?caches.keys().then(ks=>Promise.all(ks.filter(k=>k!=="firebase-sdk").map(k=>caches.delete(k)))):0]))
+      .then(()=>location.reload(),()=>{b.disabled=false;b.textContent="Forcer la mise à jour";toast("Impossible de joindre le serveur : vérifie la connexion")})}
   if(b.id==="imp"&&pending){if(armed!=="imp"){armed="imp";b.textContent="Confirmer : mes données actuelles seront remplacées";return}
     armed=null;S.set=pending.set;S.readings=pending.readings;S.charges=pending.charges;S.maint=pending.maint;S.lastExport=pending.exportedAt;pending=null;save();render();toast("Sauvegarde restaurée")}
   if(b.id==="addD"){const date=$("#dNewDate").value,p=num($("#dNewPrice").value),m=model();
